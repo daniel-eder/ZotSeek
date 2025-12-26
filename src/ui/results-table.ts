@@ -1,0 +1,508 @@
+/**
+ * Search Results Table using VirtualizedTableHelper
+ * 
+ * Uses zotero-plugin-toolkit's VirtualizedTableHelper to create a native
+ * Zotero-style table for displaying semantic search results.
+ */
+
+import { VirtualizedTableHelper } from 'zotero-plugin-toolkit';
+import { SearchResult } from '../core/search-engine';
+import { HybridSearchResult, HybridSearchEngine } from '../core/hybrid-search';
+import { Logger } from '../utils/logger';
+
+declare const Zotero: any;
+
+// Union type for both result types
+type AnySearchResult = SearchResult | HybridSearchResult;
+
+export interface ResultsTableColumn {
+  dataKey: string;
+  label: string;
+  width?: number;
+  staticWidth?: boolean;  // Use staticWidth like zotero-addons
+  fixedWidth?: boolean;   // Keep for compatibility
+  flex?: number;
+  hidden?: boolean;
+}
+
+export interface ResultsTableOptions {
+  containerId: string;
+  columns?: ResultsTableColumn[];
+  onSelectionChange?: (indices: number[]) => void;
+  onActivate?: (index: number) => void;  // Double-click or Enter
+}
+
+const DEFAULT_COLUMNS: ResultsTableColumn[] = [
+  { 
+    dataKey: 'indicator', 
+    label: '',  // No header label for indicator
+    staticWidth: true,
+    width: 32,
+    hidden: false,
+  },
+  { 
+    dataKey: 'similarity', 
+    label: 'Match',
+    staticWidth: true,
+    width: 70,
+    hidden: false,
+  },
+  { 
+    dataKey: 'title', 
+    label: 'Title',
+    fixedWidth: false,  // This column will flex
+    hidden: false,
+  },
+  { 
+    dataKey: 'authors', 
+    label: 'Authors',
+    staticWidth: true,
+    width: 180,
+    hidden: false,
+  },
+  { 
+    dataKey: 'year', 
+    label: 'Year',
+    staticWidth: true,
+    width: 50,
+    hidden: false,
+  },
+  { 
+    dataKey: 'source', 
+    label: 'Source',
+    staticWidth: true,
+    width: 80,
+    hidden: false,
+  },
+];
+
+export class SearchResultsTable {
+  private logger: Logger;
+  private tableHelper: InstanceType<typeof VirtualizedTableHelper> | null = null;
+  private results: AnySearchResult[] = [];
+  private enrichedResults: Map<number, any> = new Map();
+  private options: ResultsTableOptions;
+  private container: HTMLElement | null = null;
+  private isHybridMode: boolean = false;  // Track if showing hybrid results
+
+  constructor(options: ResultsTableOptions) {
+    this.logger = new Logger('SearchResultsTable');
+    this.options = {
+      columns: DEFAULT_COLUMNS,
+      ...options,
+    };
+  }
+
+  /**
+   * Initialize the table in the given window/document
+   */
+  async init(win: Window): Promise<void> {
+    this.logger.debug('Initializing SearchResultsTable...');
+    
+    const doc = win.document;
+    this.container = doc.getElementById(this.options.containerId);
+    
+    if (!this.container) {
+      const error = `Container element not found: ${this.options.containerId}`;
+      this.logger.error(error);
+      throw new Error(error);
+    }
+
+    this.logger.debug('Container found, clearing content...');
+    // Clear any existing content
+    this.container.innerHTML = '';
+
+    try {
+      this.logger.debug('Creating VirtualizedTableHelper...');
+      
+      // Check if VirtualizedTableHelper is available
+      if (!VirtualizedTableHelper) {
+        throw new Error('VirtualizedTableHelper is not available');
+      }
+      
+      this.logger.debug('VirtualizedTableHelper constructor found, creating instance...');
+      
+      this.logger.debug('Columns configuration:', JSON.stringify(this.options.columns));
+      
+      // Create the VirtualizedTable - following zotero-addons pattern
+      this.tableHelper = new VirtualizedTableHelper(win)
+      .setContainerId(this.options.containerId)
+      .setProp({
+        id: 'zotseek-results-table',
+        columns: this.options.columns,
+        showHeader: true,
+        multiSelect: false,
+        staticColumns: false,  // Allow column resizing like zotero-addons
+        disableFontSizeScaling: false,  // Match zotero-addons setting
+        linesPerRow: 1.6,  // Match zotero-addons row height
+      })
+      .setProp('getRowCount', () => this.results.length)
+      .setProp('getRowData', (index: number) => {
+        const data = this.getRowData(index);
+        this.logger.debug(`getRowData(${index}):`, JSON.stringify(data));
+        return data;
+      })
+      .setProp('getRowString', (index: number) => this.results[index]?.title || '')
+      .setProp('onSelectionChange', (selection: { selected: Set<number> }) => {
+        if (this.options.onSelectionChange) {
+          this.options.onSelectionChange(Array.from(selection.selected));
+        }
+      })
+      .setProp('onActivate', (event: Event, indices: number[]) => {
+        if (this.options.onActivate && indices.length > 0) {
+          this.options.onActivate(indices[0]);
+        }
+      })
+      .setProp('onColumnSort', (columnIndex: number) => {
+        // Handle column sorting
+        this.logger.debug(`Column ${columnIndex} clicked for sorting`);
+        // For now, just log - you can implement sorting logic later
+      })
+      .setProp('storeColumnPrefs', (prefs: any) => {
+        // Store column preferences (width, order, visibility)
+        this.logger.debug('Column preferences updated:', prefs);
+      });
+
+      this.logger.debug('VirtualizedTableHelper created, rendering...');
+      // Render the table
+      await this.tableHelper.render();
+      this.logger.info('Results table initialized');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('Failed to create VirtualizedTableHelper:', errorMessage);
+      throw error;
+    }
+  }
+
+  /**
+   * Get formatted row data for display
+   */
+  private getRowData(index: number): Record<string, any> {
+    const result = this.results[index];
+    if (!result) {
+      // Return empty data for all columns
+      return {
+        indicator: '',
+        similarity: '',
+        title: '',
+        authors: '',
+        year: '',
+        source: '',
+      };
+    }
+
+    const enriched = this.enrichedResults.get(result.itemId);
+    
+    // Check if this is a hybrid search result
+    const isHybrid = this.isHybridSearchResult(result);
+    
+    // Get the data with fallbacks
+    let authors: string | string[];
+    let year: number | undefined;
+    let title: string;
+    
+    if (isHybrid) {
+      // HybridSearchResult already has formatted data
+      const hybridResult = result as HybridSearchResult;
+      authors = hybridResult.creators || '';
+      year = hybridResult.year;
+      title = hybridResult.title || 'Untitled';
+    } else {
+      // SearchResult needs enrichment
+      authors = enriched?.authors || (result as SearchResult).authors || [];
+      year = enriched?.year || (result as SearchResult).year;
+      title = enriched?.title || result.title || 'Untitled';
+    }
+    
+    // Format the data for display
+    const formattedAuthors = this.formatAuthors(authors);
+    const formattedYear = year ? String(year) : '';
+    const formattedSource = this.formatSource(isHybrid ? (result as HybridSearchResult).textSource : (result as SearchResult).textSource);
+    
+    // Format similarity/score
+    let formattedSimilarity: string;
+    if (isHybrid) {
+      const hybridResult = result as HybridSearchResult;
+      if (hybridResult.semanticScore !== null) {
+        // Show semantic similarity score (0-100%)
+        formattedSimilarity = `${Math.round(hybridResult.semanticScore * 100)}%`;
+      } else if (hybridResult.keywordScore !== null) {
+        // Show keyword relevance score for keyword-only results
+        formattedSimilarity = `${Math.round(hybridResult.keywordScore * 100)}%`;
+      } else {
+        formattedSimilarity = '—';
+      }
+    } else {
+      formattedSimilarity = `${Math.round((result as SearchResult).similarity * 100)}%`;
+    }
+    
+    // Get source indicator for hybrid results
+    const indicator = isHybrid ? HybridSearchEngine.getSourceIndicator(result as HybridSearchResult) : '';
+    
+    // Create the row data object with EXACT column dataKey names
+    const rowData: Record<string, any> = {
+      indicator: indicator,
+      similarity: formattedSimilarity,
+      title: title,
+      authors: formattedAuthors,
+      year: formattedYear,
+      source: formattedSource,
+    };
+    
+    return rowData;
+  }
+  
+  /**
+   * Type guard to check if result is HybridSearchResult
+   */
+  private isHybridSearchResult(result: AnySearchResult): result is HybridSearchResult {
+    return 'rrfScore' in result || 'source' in result;
+  }
+
+
+  /**
+   * Format the text source (now includes section types)
+   */
+  private formatSource(source?: string): string {
+    switch (source) {
+      // Legacy types
+      case 'abstract': return 'Abstract';
+      case 'fulltext': return 'Full Text';
+      case 'title_only': return 'Title';
+      // Section-specific types (new)
+      case 'summary': return 'Abstract';
+      case 'methods': return 'Methods';
+      case 'findings': return 'Results';
+      case 'content': return 'Content';
+      default: return '';
+    }
+  }
+
+  /**
+   * Format authors array to string
+   */
+  private formatAuthors(authors?: string[] | any): string {
+    // Handle if authors is not an array
+    if (!authors) return '';
+    if (!Array.isArray(authors)) {
+      // If it's a string, return it directly
+      if (typeof authors === 'string') return authors;
+      // If it's a number or something else, return empty
+      return '';
+    }
+    
+    if (authors.length === 0) return '';
+    
+    // Filter out empty strings and ensure we have valid author names
+    const validAuthors = authors.filter(a => a && typeof a === 'string' && a.trim());
+    
+    if (validAuthors.length === 0) return '';
+    if (validAuthors.length === 1) return validAuthors[0];
+    if (validAuthors.length === 2) return validAuthors.join(' & ');
+    return `${validAuthors[0]} et al.`;
+  }
+
+  /**
+   * Update the table with new SearchResult results
+   */
+  async setResults(results: SearchResult[], enrichedData?: Map<number, any>): Promise<void> {
+    this.results = results;
+    this.enrichedResults = enrichedData || new Map();
+    this.isHybridMode = false;
+    
+    if (this.tableHelper) {
+      // Refresh the table to show new data
+      await this.tableHelper.render();
+      this.logger.debug(`Table updated with ${results.length} results`);
+    }
+  }
+  
+  /**
+   * Update the table with hybrid search results
+   * HybridSearchResult already contains metadata, so no enrichment needed
+   */
+  async setHybridResults(results: HybridSearchResult[]): Promise<void> {
+    this.results = results;
+    this.enrichedResults.clear();  // Not needed for hybrid results
+    this.isHybridMode = true;
+    
+    if (this.tableHelper) {
+      // Refresh the table to show new data
+      await this.tableHelper.render();
+      this.logger.debug(`Table updated with ${results.length} hybrid results`);
+    }
+  }
+
+  /**
+   * Force a re-render of the table
+   */
+  async render(): Promise<void> {
+    if (this.tableHelper) {
+      await this.tableHelper.render();
+      this.logger.debug('Table re-rendered');
+    }
+  }
+
+  /**
+   * Get the currently selected result
+   */
+  getSelectedResult(): AnySearchResult | null {
+    if (!this.tableHelper) return null;
+    
+    const tree = this.tableHelper.treeInstance;
+    if (!tree) return null;
+    
+    const selection = tree.selection;
+    if (!selection || selection.count === 0) return null;
+    
+    const index = selection.currentIndex;
+    return this.results[index] || null;
+  }
+
+  /**
+   * Get all selected results
+   */
+  getSelectedResults(): AnySearchResult[] {
+    if (!this.tableHelper) return [];
+    
+    const tree = this.tableHelper.treeInstance;
+    if (!tree) return [];
+    
+    const selection = tree.selection;
+    if (!selection || selection.count === 0) return [];
+    
+    const selectedIndices: number[] = [];
+    for (let i = 0; i < this.results.length; i++) {
+      if (selection.isSelected(i)) {
+        selectedIndices.push(i);
+      }
+    }
+    
+    return selectedIndices.map(i => this.results[i]).filter(Boolean);
+  }
+
+  /**
+   * Get the result at a specific index
+   */
+  getResultAt(index: number): AnySearchResult | null {
+    return this.results[index] || null;
+  }
+
+  /**
+   * Clear all results
+   */
+  async clear(): Promise<void> {
+    this.results = [];
+    this.enrichedResults.clear();
+    if (this.tableHelper) {
+      await this.tableHelper.render();
+    }
+  }
+
+  /**
+   * Sort results by column
+   */
+  async sortBy(column: string, ascending: boolean = true): Promise<void> {
+    const sortFn = (a: AnySearchResult, b: AnySearchResult): number => {
+      let valA: any, valB: any;
+      
+      const isHybridA = this.isHybridSearchResult(a);
+      const isHybridB = this.isHybridSearchResult(b);
+      
+      const enrichedA = this.enrichedResults.get(a.itemId);
+      const enrichedB = this.enrichedResults.get(b.itemId);
+      
+      switch (column) {
+        case 'similarity':
+          if (isHybridA) {
+            valA = (a as HybridSearchResult).semanticScore ?? (a as HybridSearchResult).rrfScore;
+          } else {
+            valA = (a as SearchResult).similarity;
+          }
+          if (isHybridB) {
+            valB = (b as HybridSearchResult).semanticScore ?? (b as HybridSearchResult).rrfScore;
+          } else {
+            valB = (b as SearchResult).similarity;
+          }
+          break;
+        case 'title':
+          valA = a.title?.toLowerCase() || '';
+          valB = b.title?.toLowerCase() || '';
+          break;
+        case 'year':
+          if (isHybridA) {
+            valA = (a as HybridSearchResult).year || 0;
+          } else {
+            valA = enrichedA?.year || (a as SearchResult).year || 0;
+          }
+          if (isHybridB) {
+            valB = (b as HybridSearchResult).year || 0;
+          } else {
+            valB = enrichedB?.year || (b as SearchResult).year || 0;
+          }
+          break;
+        case 'authors':
+          if (isHybridA) {
+            valA = ((a as HybridSearchResult).creators || '').toLowerCase();
+          } else {
+            valA = this.formatAuthors(enrichedA?.authors || (a as SearchResult).authors).toLowerCase();
+          }
+          if (isHybridB) {
+            valB = ((b as HybridSearchResult).creators || '').toLowerCase();
+          } else {
+            valB = this.formatAuthors(enrichedB?.authors || (b as SearchResult).authors).toLowerCase();
+          }
+          break;
+        case 'source':
+          valA = (isHybridA ? (a as HybridSearchResult).textSource : (a as SearchResult).textSource) || '';
+          valB = (isHybridB ? (b as HybridSearchResult).textSource : (b as SearchResult).textSource) || '';
+          break;
+        default:
+          return 0;
+      }
+      
+      if (valA < valB) return ascending ? -1 : 1;
+      if (valA > valB) return ascending ? 1 : -1;
+      return 0;
+    };
+
+    this.results.sort(sortFn);
+    await this.tableHelper?.render();
+  }
+
+  /**
+   * Focus the table for keyboard navigation
+   */
+  focus(): void {
+    this.tableHelper?.treeInstance?.focus();
+  }
+
+  /**
+   * Select a specific item by index
+   */
+  selectIndex(index: number): void {
+    if (!this.tableHelper || index < 0 || index >= this.results.length) return;
+    
+    const tree = this.tableHelper.treeInstance;
+    if (tree && tree.selection) {
+      tree.selection.select(index);
+      // ensureRowIsVisible might not be available in all versions
+      if (typeof tree.ensureRowIsVisible === 'function') {
+        tree.ensureRowIsVisible(index);
+      }
+    }
+  }
+
+  /**
+   * Cleanup
+   */
+  destroy(): void {
+    // VirtualizedTableHelper doesn't have an unregister method
+    // The React components are cleaned up automatically when the window closes
+    this.tableHelper = null;
+    this.results = [];
+    this.enrichedResults.clear();
+    this.container = null;
+    this.logger.debug('Results table destroyed');
+  }
+}

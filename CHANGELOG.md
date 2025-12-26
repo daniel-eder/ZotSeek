@@ -1,0 +1,32 @@
+# Changelog
+
+All notable changes to ZotSeek - Semantic Search for Zotero will be documented in this file.
+
+## [1.0.0] - 2025-12-26
+
+### Initial Release 🎉
+
+#### Core Features
+- 🔍 **Semantic Search** - Find papers by meaning using local AI embeddings (nomic-embed-text-v1.5)
+- 📚 **Find Similar Papers** - Right-click any paper to discover semantically related papers
+- 🔎 **ZotSeek Search Dialog** - Search your library with natural language queries
+- 🔗 **Hybrid Search** - Combines AI embeddings with Zotero's keyword search using RRF
+  - Three search modes: Hybrid (recommended), Semantic Only, Keyword Only
+  - Result indicators: 🔗 (both sources), 🧠 (semantic only), 🔤 (keyword only)
+- 🗂️ **Flexible Indexing** - Index individual collections or entire library
+  - Abstract mode: Fast, uses title + abstract only
+  - Fulltext mode: Complete document analysis with section-aware chunking
+- 🔒 **100% Local** - No data sent to cloud, works offline after model loads
+
+#### Smart Features
+- 📑 **Section-Aware Results** - Shows which section matched (Abstract, Methods, Results)
+- 🎯 **Query Analysis** - Automatically adjusts weights based on query type
+- ⚡ **Lightning Fast** - First search ~200ms, subsequent searches <50ms with caching
+- 💾 **Smart Caching** - Pre-normalized Float32Arrays for instant searches
+- 📊 **Stable Progress Tracking** - Reliable progress bars with ETA
+
+#### Technical
+- 🧠 **ChromeWorker Implementation** - Transformers.js runs in background thread
+- 🛡️ **Rock-Solid SQLite** - Reliable parallel queries for Zotero 8
+- ⚙️ **Settings Panel** - Easy configuration in Zotero preferences
+- ❌ **Cancellation Support** - Cancel long-running operations anytime

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero/skin/zotero.css" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero-platform/content/zotero-react-client.css" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero-platform/content/zotero.css" type="text/css"?>
+<?xml-stylesheet href="chrome://zotseek/content/searchDialog.css" type="text/css"?>
+<!DOCTYPE window>
+<window
+  xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+  title="ZotSeek"
+  width="900"
+  height="600"
+  persist="width,height,screenX,screenY">
+
+  <!-- Include Zotero's scripts first to make Zotero available -->
+  <script src="chrome://zotero/content/include.js"></script>
+  <script src="chrome://zotero/content/customElements.js"></script>
+  
+  <!-- Load the dialog script bundle -->
+  <script type="application/javascript" src="chrome://zotseek/content/scripts/search-dialog-vtable.js"/>
+
+  <vbox flex="1" style="padding: 10px;">
+    <!-- Search Input Row -->
+    <hbox align="center" style="margin-bottom: 8px;">
+      <label value="Search:" style="margin-right: 8px; min-width: 50px;"/>
+      <html:input 
+        id="zotseek-query" 
+        type="text" 
+        placeholder="Enter your search query (auto-searches as you type)..."
+        style="flex: 1; padding: 6px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;"
+      />
+      <button id="zotseek-btn" label="Search" style="margin-left: 8px;"/>
+    </hbox>
+    
+    <!-- Search Mode Toggle -->
+    <hbox id="search-mode-row" align="center" style="margin-bottom: 8px;">
+      <label value="Mode:" style="margin-right: 8px; min-width: 50px; color: #666;"/>
+      <menulist id="search-mode-select" style="min-width: 180px;">
+        <menupopup>
+          <menuitem value="hybrid" label="🔗 Hybrid (Recommended)"/>
+          <menuitem value="semantic" label="🧠 Semantic Only"/>
+          <menuitem value="keyword" label="🔤 Keyword Only"/>
+        </menupopup>
+      </menulist>
+      <label id="search-mode-hint" value="Match type: 🔗 both searches · 🧠 AI match · 🔤 keyword match" style="margin-left: 12px; color: #999; font-size: 11px;"/>
+    </hbox>
+
+    <!-- Status / Progress -->
+    <hbox id="zotseek-status" align="center" style="min-height: 24px; margin: 5px 0;">
+      <label id="zotseek-status-text" value="" style="color: #666;"/>
+    </hbox>
+
+    <!-- Results Table Container -->
+    <hbox class="virtualized-table-container" flex="1" height="400">
+      <html:div id="zotseek-results-container" />
+    </hbox>
+
+    <separator class="thin"/>
+
+    <!-- Footer Buttons -->
+    <hbox pack="end" style="margin-top: 10px;">
+      <button id="zotseek-open-btn" label="Open Selected" disabled="true" style="margin-right: 5px;"/>
+      <button id="zotseek-close-btn" label="Close"/>
+    </hbox>
+  </vbox>
+
+</window>

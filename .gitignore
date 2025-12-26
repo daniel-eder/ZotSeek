@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+.claude/
+*.swp
+*.swo
+.DS_Store
+
+# Debug
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Test coverage
+coverage/
+
+# Zotero specific
+*.xpi

@@ -1,0 +1,418 @@
+/* ZotSeek Dialog Styles */
+
+#zotseek-dialog {
+  min-width: 600px;
+  min-height: 400px;
+}
+
+#search-area {
+  background-color: var(--material-background);
+  border-bottom: 1px solid var(--material-border-quarternary);
+}
+
+#search-box {
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--material-border-quarternary);
+  border-radius: 4px;
+  background: var(--material-sidepane);
+}
+
+#search-box:focus {
+  border-color: var(--accent-blue);
+  outline: none;
+}
+
+#search-button {
+  padding: 6px 16px;
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+#search-button:hover {
+  background: var(--accent-blue-darkest);
+}
+
+#progress-box {
+  padding: 15px;
+  background: var(--material-mix-quinary);
+  border-radius: 4px;
+  margin: 10px;
+}
+
+#results-count {
+  padding: 10px 15px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fill-secondary);
+}
+
+#results-list {
+  background: var(--material-sidepane);
+  border: none;
+  padding: 5px;
+}
+
+.search-result-item {
+  padding: 10px;
+  margin: 5px;
+  background: var(--material-background);
+  border: 1px solid var(--material-border-quarternary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.search-result-item:hover {
+  background: var(--material-mix-quinary);
+  border-color: var(--material-border-secondary);
+}
+
+.search-result-item[selected="true"] {
+  background: var(--accent-blue-10);
+  border-color: var(--accent-blue);
+}
+
+.result-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fill-primary);
+}
+
+.result-similarity {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--material-mix-quinary);
+}
+
+.result-creators {
+  font-size: 13px;
+  color: var(--fill-secondary);
+  margin-top: 4px;
+}
+
+.result-year {
+  font-size: 12px;
+  color: var(--fill-tertiary);
+  margin-top: 2px;
+}
+
+/* VirtualizedTable Styles */
+#zotseek-results-container {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+}
+
+#zotseek-results-container .virtualized-table {
+  height: 100%;
+  width: 100%;
+}
+
+/* Only apply border to the actual header element, not its children */
+#zotseek-results-container .tree-header {
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd !important;
+  border-top: none !important;
+  font-weight: 600;
+  height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+/* Ensure no borders on child elements */
+#zotseek-results-container .tree-header * {
+  border: none !important;
+}
+
+#zotseek-results-container .virtualized-table-header .row,
+#zotseek-results-container thead .row {
+  font-weight: 600;
+  background: transparent;
+  border: none !important;
+  padding: 8px 12px;
+}
+
+#zotseek-results-container .virtualized-table-header .cell,
+#zotseek-results-container thead .cell {
+  font-weight: 600;
+  color: #424242;
+}
+
+#zotseek-results-container .tree-children .row,
+#zotseek-results-container .row:not(.tree-header .row) {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  height: 28px;
+  padding: 4px 12px;
+  border-bottom: 1px solid #eee;
+  border-top: none !important;
+  cursor: pointer;
+  position: relative;
+}
+
+#zotseek-results-container .row:hover {
+  background: #f0f8ff !important;
+  z-index: 1;
+}
+
+#zotseek-results-container .row.selected {
+  background: #d1e7fd !important;
+  border-top: 1px solid #b3d4fc;
+  border-bottom: 1px solid #b3d4fc;
+}
+
+#zotseek-results-container .row.focused {
+  outline: 2px solid #2196F3;
+  outline-offset: -2px;
+  z-index: 2;
+}
+
+#zotseek-results-container .cell {
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Column-specific styles */
+#zotseek-results-container .cell[data-key="similarity"],
+#zotseek-results-container [data-key="similarity"] {
+  font-weight: 600;
+  color: #1976D2;
+}
+
+#zotseek-results-container .cell[data-key="title"],
+#zotseek-results-container [data-key="title"] {
+  font-weight: 500;
+  color: #212121;
+}
+
+#zotseek-results-container .cell[data-key="authors"],
+#zotseek-results-container [data-key="authors"] {
+  color: #616161;
+}
+
+#zotseek-results-container .cell[data-key="year"],
+#zotseek-results-container [data-key="year"] {
+  color: #757575;
+  text-align: center;
+}
+
+#zotseek-results-container .cell[data-key="source"],
+#zotseek-results-container [data-key="source"] {
+  color: #9E9E9E;
+  font-size: 12px;
+}
+
+/* Ensure proper table layout */
+#zotseek-results-container .virtualized-table-body {
+  overflow-y: auto;
+}
+
+#zotseek-results-container tr {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  min-height: 28px;
+  height: 28px;
+}
+
+#zotseek-results-container td,
+#zotseek-results-container .cell {
+  padding: 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Virtualized table container - matching zotero-addons pattern */
+.virtualized-table-container {
+  border: 1px solid #ddd;
+  background: white;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+/* Override Zotero's default tree-view borders */
+.virtualized-table-container .tree-view {
+  border: none !important;
+}
+
+.virtualized-table-container .tree-view .tree-header {
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
+.virtualized-table-container > div {
+  width: 100%;
+  height: 100%;
+}
+
+/* Ensure the table container fills space properly */
+#zotseek-results-container {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Fix virtualized table row heights */
+#zotseek-results-container .virtualized-table .row,
+#zotseek-results-container [role="treeitem"] {
+  min-height: 28px !important;
+  height: 28px !important;
+  box-sizing: border-box;
+}
+
+/* Remove double border between header and first row */
+#zotseek-results-container .virtualized-table .row:first-child,
+#zotseek-results-container [role="treeitem"]:first-child,
+#zotseek-results-container tbody tr:first-child,
+#zotseek-results-container .tree-children > :first-child {
+  border-top: none !important;
+}
+
+/* Also ensure no top border on first data row */
+#zotseek-results-container .tree-children .row:first-of-type {
+  border-top: none !important;
+}
+
+
+/* Ensure hover states work on all row elements */
+#zotseek-results-container .virtualized-table .row:hover,
+#zotseek-results-container [role="treeitem"]:hover,
+#zotseek-results-container tr:hover {
+  background: #f0f8ff !important;
+}
+
+/* Selected state for all row types */
+#zotseek-results-container .virtualized-table .row.selected,
+#zotseek-results-container [role="treeitem"][aria-selected="true"],
+#zotseek-results-container tr.selected {
+  background: #d1e7fd !important;
+}
+
+/* Search Mode Selector */
+#search-mode-row {
+  padding: 4px 0;
+}
+
+#search-mode-select {
+  background: var(--material-background, #fff);
+  border: 1px solid var(--material-border-quarternary, #ccc);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+#search-mode-hint {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Source Indicator Column */
+#zotseek-results-container .cell[data-key="indicator"],
+#zotseek-results-container [data-key="indicator"] {
+  font-size: 14px;
+  text-align: center;
+  padding: 0 4px;
+  min-width: 24px;
+}
+
+/* Source indicator tooltips */
+#zotseek-results-container .cell[data-key="indicator"][title] {
+  cursor: help;
+}
+
+/* Highlight rows found by both searches */
+#zotseek-results-container .row[data-source="both"] {
+  background: rgba(76, 175, 80, 0.08);
+}
+
+#zotseek-results-container .row[data-source="both"]:hover {
+  background: rgba(76, 175, 80, 0.15) !important;
+}
+
+#zotseek-results-container .row[data-source="both"].selected {
+  background: rgba(76, 175, 80, 0.25) !important;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  #search-box {
+    background: var(--material-background);
+    color: var(--fill-primary);
+  }
+  
+  .search-result-item {
+    background: var(--material-button);
+  }
+  
+  .search-result-item:hover {
+    background: var(--material-button-hover);
+  }
+  
+  #zotseek-results-container .virtualized-table-header {
+    background: #2a2a2a;
+    border-bottom-color: #444;
+  }
+  
+  #zotseek-results-container .row {
+    border-bottom-color: #333;
+  }
+  
+  #zotseek-results-container .row:hover,
+  #zotseek-results-container .virtualized-table .row:hover,
+  #zotseek-results-container [role="treeitem"]:hover {
+    background: #3a3a3a !important;
+  }
+  
+  #zotseek-results-container .row.selected,
+  #zotseek-results-container .virtualized-table .row.selected,
+  #zotseek-results-container [role="treeitem"][aria-selected="true"] {
+    background: #1e3a5f !important;
+  }
+  
+  #zotseek-results-container .cell[data-key="title"] {
+    color: #e0e0e0;
+  }
+  
+  #zotseek-results-container .cell[data-key="authors"] {
+    color: #b0b0b0;
+  }
+  
+  /* Dark mode: Search mode selector */
+  #search-mode-select {
+    background: var(--material-background, #2a2a2a);
+    border-color: #444;
+    color: #e0e0e0;
+  }
+  
+  #search-mode-hint {
+    color: #888;
+  }
+  
+  /* Dark mode: Highlight rows found by both searches */
+  #zotseek-results-container .row[data-source="both"] {
+    background: rgba(76, 175, 80, 0.12);
+  }
+  
+  #zotseek-results-container .row[data-source="both"]:hover {
+    background: rgba(76, 175, 80, 0.2) !important;
+  }
+  
+  #zotseek-results-container .row[data-source="both"].selected {
+    background: rgba(76, 175, 80, 0.3) !important;
+  }
+}
