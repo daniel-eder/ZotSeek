@@ -47,32 +47,21 @@ A Zotero plugin that adds **AI-powered semantic search** to your library. Find s
 ### The Big Picture
 
 ```mermaid
-flowchart LR
-    subgraph INDEXING["📥 INDEXING (one-time)"]
-        P["📄 Paper<br/>Title + Abstract"]
-        M["🤖 AI Model<br/>nomic-embed-v1.5"]
-        E["[0.023, -0.045, ...]<br/>768 numbers"]
-        P --> M --> E
+flowchart TD
+    subgraph INDEX["1️⃣ INDEX"]
+        A[📄 Paper] --> B[🤖 AI Model] --> C[768 numbers]
     end
     
-    subgraph SEARCHING["🔍 SEARCHING"]
-        Q["📄 Query"]
-        QE["Query Embedding"]
-        Q --> QE
+    subgraph SEARCH["2️⃣ SEARCH"]
+        D[🔍 Query] --> E[Query → 768 numbers]
+        E --> F{Compare all papers}
+        F --> G[📊 Ranked results]
     end
     
-    subgraph LIBRARY["📚 Library Embeddings"]
-        A["Paper A: [0.021, -0.048, ...]"]
-        B["Paper B: [0.089, 0.012, ...]"]
-        C["Paper C: [0.025, -0.041, ...]"]
-    end
-    
-    E --> LIBRARY
-    QE -->|"Cosine Similarity"| LIBRARY
-    LIBRARY --> R["📊 Results<br/>A: 94% · C: 89% · B: 23%"]
+    C -.->|stored| F
 ```
 
-**How it works:** Each paper becomes a list of 768 numbers (an "embedding") that captures its meaning. Similar papers have similar numbers, so we can find related research by comparing these numbers.
+**How it works:** Each paper becomes 768 numbers capturing its meaning. To search, we convert your query to numbers and find papers with similar numbers.
 
 ### Step-by-Step Process
 
@@ -211,27 +200,19 @@ Papers with **similar meanings** have **similar numbers**, even if they use diff
 ### System Overview
 
 ```mermaid
-flowchart TB
-    subgraph ZOTERO["🔬 ZOTERO"]
-        subgraph MAIN["Main Thread"]
-            A["Plugin Logic<br/>(index.ts)"]
-            B["Vector Store<br/>(SQLite)"]
-            C["Search Engine<br/>(cosine similarity)"]
-        end
-        
-        subgraph WORKER["ChromeWorker Thread"]
-            D["embedding-worker.ts"]
-            E["Transformers.js<br/>(ONNX Runtime)"]
-            F["nomic-embed-text-v1.5<br/>(bundled, 131MB)"]
-        end
+flowchart LR
+    subgraph Main["Main Thread"]
+        A[Plugin] <--> B[(SQLite)]
+        A <--> C[Search]
     end
     
-    A -->|"postMessage()"| D
-    D --> E
-    E --> F
-    D -->|"embedding[]"| A
-    A <--> B
-    A <--> C
+    subgraph Worker["ChromeWorker"]
+        D[Transformers.js]
+        E[nomic-embed-v1.5]
+    end
+    
+    A -->|text| Worker
+    Worker -->|embeddings| A
 ```
 
 ### Why ChromeWorker?
