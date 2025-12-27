@@ -1,12 +1,12 @@
 /**
  * Storage Factory - Provides the SQLite vector store
- * 
+ *
  * SQLite is the only supported storage backend:
  * - O(1) indexed lookups
  * - In-memory caching with pre-normalized Float32Arrays for fast search
  * - Lower memory usage (loads on demand)
  * - Atomic updates (single row INSERT/UPDATE)
- * - Stores tables in Zotero's main database with zs_ prefix
+ * - Uses separate database file (zotseek.sqlite) attached to Zotero's connection
  */
 
 import { VectorStoreSQLite, vectorStoreSQLite } from './vector-store-sqlite';
@@ -36,6 +36,9 @@ export interface IVectorStore {
   setMetadata(key: string, value: any): Promise<void>;
   isReady(): boolean;
   close(): Promise<void>;
+  // New methods for database management
+  deleteDatabase(): Promise<void>;
+  getDatabasePath(): string;
 }
 
 /**

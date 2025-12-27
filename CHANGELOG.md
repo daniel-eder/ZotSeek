@@ -2,6 +2,26 @@
 
 All notable changes to ZotSeek - Semantic Search for Zotero will be documented in this file.
 
+## [1.1.0] - 2025-12-27
+
+### Changed
+- **Database Storage** - Moved from tables in Zotero's main database to separate `zotseek.sqlite` file
+  - Uses SQLite ATTACH DATABASE pattern (inspired by Better BibTeX)
+  - Keeps Zotero's main database clean and unbloated
+  - Automatic migration from old schema (no user action required)
+- **Menu Label** - Renamed "Index for ZotSeek" to "Index Selected for ZotSeek" for clarity
+
+### Added
+- **Database Path Display** - Settings panel now shows the database file location
+- **Uninstall Cleanup** - Automatically removes database file and preferences on plugin uninstall
+
+### Technical
+- Database file stored at: `<Zotero Data Directory>/zotseek.sqlite`
+- Migration copies data from old `zs_` tables, then drops them and runs VACUUM
+- Added `getDatabasePath()` and `deleteDatabase()` methods to vector store
+
+---
+
 ## [1.0.0] - 2025-12-26
 
 ### Initial Release 🎉

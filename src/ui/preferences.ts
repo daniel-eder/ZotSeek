@@ -175,6 +175,7 @@ class PreferencesManager {
       setText('zotseek-stat-chunks', stats.totalChunks.toLocaleString());
       setText('zotseek-stat-avgchunks', stats.avgChunksPerPaper.toString());
       setText('zotseek-stat-storage', stats.storageSize);
+      setText('zotseek-stat-dbpath', stats.databasePath || '-');
       setText('zotseek-stat-model', stats.modelId);
       setText('zotseek-stat-lastindexed', stats.lastIndexed);
 

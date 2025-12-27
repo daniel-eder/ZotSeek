@@ -226,16 +226,17 @@ Transformers.js can't run directly in Zotero's main thread because:
 
 ### Data Storage
 
-Embeddings are stored in **SQLite tables** within Zotero's main database (`zotero.sqlite`):
+Embeddings are stored in a **separate SQLite database** (`zotseek.sqlite`) attached to Zotero's connection:
 
-- **Location:** Tables with `zs_` prefix in Zotero's database
+- **Location:** `<Zotero Data Directory>/zotseek.sqlite` (shown in Settings → ZotSeek)
 - **Size:** ~15KB per paper (abstract mode), ~150KB per paper (full document mode)
-- **Benefits:** O(1) indexed lookups, in-memory caching, atomic updates
+- **Benefits:** O(1) indexed lookups, in-memory caching, atomic updates, clean uninstall
 
-The SQLite backend includes:
+The SQLite backend uses the **ATTACH DATABASE** pattern (inspired by Better BibTeX):
+- **Separate file** - Keeps Zotero's main database clean and unbloated
 - **Smart caching** - Pre-normalized Float32Arrays cached in memory after first search
 - **Reliable queries** - Uses `columnQueryAsync()` and `valueQueryAsync()` for robust data retrieval
-- **Automatic cleanup** - Data is managed alongside Zotero's database
+- **Clean uninstall** - Database file automatically removed when plugin is uninstalled
 
 ---
 

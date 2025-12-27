@@ -1,8 +1,12 @@
 /**
  * Vector Store - SQLite-based storage for paper embeddings
  *
- * Creates tables directly in Zotero's main database (prefixed with "zs_")
- * This is simpler and more reliable than using ATTACH DATABASE.
+ * Uses a separate SQLite database file (zotseek.sqlite) that is attached
+ * to Zotero's database connection. This approach (inspired by Better BibTeX):
+ * - Keeps Zotero's main database clean and unbloated
+ * - Allows easy cleanup on uninstall (just delete the file)
+ * - Uses Zotero.DB API through ATTACH DATABASE
+ * - Provides complete data isolation
  *
  * Much faster than JSON file for:
  * - Large libraries (1000+ papers)
@@ -13,6 +17,8 @@
 import { Logger } from '../utils/logger';
 
 declare const Zotero: any;
+declare const PathUtils: any;
+declare const IOUtils: any;
 
 // Text source types - now includes specific section types for better retrieval info
 export type TextSourceType = 
@@ -49,19 +55,24 @@ export interface VectorStoreStats {
   storageUsedBytes: number;
 }
 
-// Table prefix to avoid conflicts with Zotero's tables
-const TABLE_PREFIX = 'zs_';
-const SCHEMA_VERSION = 2;  // Bumped for chunk support
+// Database configuration
+const DB_NAME = 'zotseek';           // Schema name when attached
+const DB_FILE = 'zotseek.sqlite';    // Database filename
+const SCHEMA_VERSION = 3;            // Bumped for separate database migration
+
+// Legacy table prefix (for migration from old schema)
+const LEGACY_TABLE_PREFIX = 'zs_';
 
 /**
  * SQLite-based Vector Store
  *
- * Uses Zotero's main database with prefixed tables.
- * Benefits: O(1) lookups, lower memory, atomic updates
+ * Uses a separate database file attached to Zotero's connection.
+ * Benefits: O(1) lookups, lower memory, atomic updates, clean uninstall
  */
 export class VectorStoreSQLite {
   private logger: Logger;
   private initialized = false;
+  private attached = false;
   private cache: {
     data: Array<{
       itemId: number;
@@ -79,6 +90,13 @@ export class VectorStoreSQLite {
   }
 
   /**
+   * Get the path to the ZotSeek database file
+   */
+  private getDbPath(): string {
+    return PathUtils.join(Zotero.DataDirectory.dir, DB_FILE);
+  }
+
+  /**
    * Zotero 8 DB wrapper workaround:
    * - `queryAsync()` can return []/undefined for some SELECTs even when rows exist.
    * - `columnQueryAsync()` is often more reliable for simple one-column result sets.
@@ -88,7 +106,7 @@ export class VectorStoreSQLite {
 
     const sql = `
       SELECT item_id
-      FROM ${TABLE_PREFIX}embeddings
+      FROM ${DB_NAME}.embeddings
       ${whereSql}
       ORDER BY item_id
     `;
@@ -114,18 +132,27 @@ export class VectorStoreSQLite {
   }
 
   /**
-   * Initialize the SQLite tables in Zotero's main database
+   * Initialize the SQLite database
+   * - Attaches separate database file to Zotero's connection
+   * - Migrates data from old schema if needed
+   * - Creates tables in the attached database
    */
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    this.logger.info('Initializing SQLite vector store in Zotero database...');
+    this.logger.info('Initializing SQLite vector store with separate database...');
 
     try {
       // Check if Zotero.DB exists
       if (!Zotero.DB) {
         throw new Error('Zotero.DB is not available');
       }
+
+      // Attach the separate database
+      await this.attachDatabase();
+
+      // Check for and migrate from old schema (zs_ tables in main database)
+      await this.migrateFromOldSchema();
 
       // Create tables if they don't exist
       this.logger.debug('Creating tables...');
@@ -146,12 +173,161 @@ export class VectorStoreSQLite {
   }
 
   /**
-   * Create database schema
+   * Attach the ZotSeek database to Zotero's connection
+   */
+  private async attachDatabase(): Promise<void> {
+    if (this.attached) return;
+
+    const dbPath = this.getDbPath();
+    this.logger.info(`Attaching database: ${dbPath}`);
+
+    try {
+      // Check if already attached (e.g., from a previous session that didn't clean up)
+      const databases = await Zotero.DB.queryAsync("PRAGMA database_list");
+      const alreadyAttached = databases?.some((db: any) => db.name === DB_NAME);
+
+      if (alreadyAttached) {
+        this.logger.info('Database already attached');
+        this.attached = true;
+        return;
+      }
+
+      // Attach the database
+      await Zotero.DB.queryAsync(`ATTACH DATABASE ? AS ${DB_NAME}`, [dbPath]);
+      this.attached = true;
+      this.logger.info('Database attached successfully');
+    } catch (error: any) {
+      this.logger.error(`Failed to attach database: ${error?.message || error}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Detach the ZotSeek database from Zotero's connection
+   */
+  async detachDatabase(): Promise<void> {
+    if (!this.attached) return;
+
+    try {
+      await Zotero.DB.queryAsync(`DETACH DATABASE ${DB_NAME}`);
+      this.attached = false;
+      this.logger.info('Database detached successfully');
+    } catch (error: any) {
+      this.logger.warn(`Failed to detach database: ${error?.message || error}`);
+    }
+  }
+
+  /**
+   * Migrate data from old schema (zs_ tables in Zotero's main database)
+   * to the new separate database
+   */
+  private async migrateFromOldSchema(): Promise<void> {
+    // Check if old tables exist in Zotero's main database
+    let hasOldTables = false;
+    try {
+      const result = await Zotero.DB.valueQueryAsync(
+        `SELECT 1 FROM sqlite_master WHERE type='table' AND name='${LEGACY_TABLE_PREFIX}embeddings' LIMIT 1`
+      );
+      hasOldTables = result === 1;
+    } catch (e) {
+      this.logger.debug(`Error checking for old tables: ${e}`);
+    }
+
+    if (!hasOldTables) {
+      this.logger.debug('No old schema found, skipping migration');
+      return;
+    }
+
+    this.logger.info('Found old zs_ tables, starting migration...');
+
+    try {
+      // First, ensure the new tables exist
+      await this.createTables();
+
+      // Check if we already have data in the new database
+      const newCount = await Zotero.DB.valueQueryAsync(
+        `SELECT COUNT(*) FROM ${DB_NAME}.embeddings`
+      );
+
+      if (newCount && newCount > 0) {
+        this.logger.info(`New database already has ${newCount} records, skipping data migration`);
+      } else {
+        // Migrate embeddings data
+        this.logger.info('Migrating embeddings data...');
+
+        // Get count of old records
+        const oldCount = await Zotero.DB.valueQueryAsync(
+          `SELECT COUNT(*) FROM ${LEGACY_TABLE_PREFIX}embeddings`
+        );
+        this.logger.info(`Found ${oldCount} records to migrate`);
+
+        if (oldCount > 0) {
+          // Copy data from old table to new table
+          await Zotero.DB.queryAsync(`
+            INSERT INTO ${DB_NAME}.embeddings
+            (item_id, chunk_index, item_key, library_id, title, abstract, chunk_text,
+             text_source, embedding, model_id, indexed_at, content_hash)
+            SELECT item_id, chunk_index, item_key, library_id, title, abstract, chunk_text,
+                   text_source, embedding, model_id, indexed_at, content_hash
+            FROM ${LEGACY_TABLE_PREFIX}embeddings
+          `);
+          this.logger.info('Embeddings data migrated successfully');
+        }
+
+        // Migrate metadata
+        const hasOldMetadata = await Zotero.DB.valueQueryAsync(
+          `SELECT 1 FROM sqlite_master WHERE type='table' AND name='${LEGACY_TABLE_PREFIX}metadata' LIMIT 1`
+        );
+
+        if (hasOldMetadata === 1) {
+          this.logger.info('Migrating metadata...');
+          await Zotero.DB.queryAsync(`
+            INSERT OR REPLACE INTO ${DB_NAME}.metadata (key, value)
+            SELECT key, value FROM ${LEGACY_TABLE_PREFIX}metadata
+          `);
+          this.logger.info('Metadata migrated successfully');
+        }
+      }
+
+      // Drop old tables from Zotero's main database
+      this.logger.info('Dropping old tables from Zotero database...');
+      await Zotero.DB.queryAsync(`DROP TABLE IF EXISTS ${LEGACY_TABLE_PREFIX}embeddings`);
+      await Zotero.DB.queryAsync(`DROP TABLE IF EXISTS ${LEGACY_TABLE_PREFIX}metadata`);
+
+      // Drop old indexes (they're automatically dropped with the table, but just in case)
+      try {
+        await Zotero.DB.queryAsync(`DROP INDEX IF EXISTS ${LEGACY_TABLE_PREFIX}idx_item_id`);
+        await Zotero.DB.queryAsync(`DROP INDEX IF EXISTS ${LEGACY_TABLE_PREFIX}idx_library_id`);
+        await Zotero.DB.queryAsync(`DROP INDEX IF EXISTS ${LEGACY_TABLE_PREFIX}idx_content_hash`);
+      } catch (e) {
+        // Indexes may not exist or already dropped
+      }
+
+      this.logger.info('Old tables dropped successfully');
+
+      // Run VACUUM to reclaim space in Zotero's main database
+      this.logger.info('Running VACUUM to reclaim space...');
+      try {
+        await Zotero.DB.queryAsync('VACUUM');
+        this.logger.info('VACUUM completed');
+      } catch (e) {
+        this.logger.warn(`VACUUM failed (non-critical): ${e}`);
+      }
+
+      this.logger.info('Migration from old schema completed successfully');
+    } catch (error: any) {
+      this.logger.error(`Migration failed: ${error?.message || error}`);
+      // Don't throw - we can still continue with a fresh database
+    }
+  }
+
+  /**
+   * Create database schema in the attached database
    */
   private async createTables(): Promise<void> {
     // Main embeddings table with chunk support
     await Zotero.DB.queryAsync(`
-      CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}embeddings (
+      CREATE TABLE IF NOT EXISTS ${DB_NAME}.embeddings (
         item_id INTEGER NOT NULL,
         chunk_index INTEGER NOT NULL DEFAULT 0,
         item_key TEXT NOT NULL,
@@ -180,20 +356,20 @@ export class VectorStoreSQLite {
   private async createIndexes(): Promise<void> {
     // Index for item lookups (all chunks for an item)
     await Zotero.DB.queryAsync(`
-      CREATE INDEX IF NOT EXISTS ${TABLE_PREFIX}idx_item_id
-      ON ${TABLE_PREFIX}embeddings(item_id)
+      CREATE INDEX IF NOT EXISTS ${DB_NAME}.idx_item_id
+      ON embeddings(item_id)
     `);
 
     // Index for library lookups
     await Zotero.DB.queryAsync(`
-      CREATE INDEX IF NOT EXISTS ${TABLE_PREFIX}idx_library_id
-      ON ${TABLE_PREFIX}embeddings(library_id)
+      CREATE INDEX IF NOT EXISTS ${DB_NAME}.idx_library_id
+      ON embeddings(library_id)
     `);
 
     // Index for content hash
     await Zotero.DB.queryAsync(`
-      CREATE INDEX IF NOT EXISTS ${TABLE_PREFIX}idx_content_hash
-      ON ${TABLE_PREFIX}embeddings(content_hash)
+      CREATE INDEX IF NOT EXISTS ${DB_NAME}.idx_content_hash
+      ON embeddings(content_hash)
     `);
   }
 
@@ -203,7 +379,7 @@ export class VectorStoreSQLite {
   private async updateSchemaVersion(): Promise<void> {
     // Ensure metadata table exists
     await Zotero.DB.queryAsync(`
-      CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}metadata (
+      CREATE TABLE IF NOT EXISTS ${DB_NAME}.metadata (
         key TEXT PRIMARY KEY,
         value TEXT
       )
@@ -211,7 +387,7 @@ export class VectorStoreSQLite {
 
     // Set schema version
     await Zotero.DB.queryAsync(`
-      INSERT OR REPLACE INTO ${TABLE_PREFIX}metadata (key, value) VALUES ('schema_version', ?)
+      INSERT OR REPLACE INTO ${DB_NAME}.metadata (key, value) VALUES ('schema_version', ?)
     `, [String(SCHEMA_VERSION)]);
   }
 
@@ -253,7 +429,7 @@ export class VectorStoreSQLite {
     const chunkIndex = embedding.chunkIndex ?? 0;
 
     await Zotero.DB.queryAsync(`
-      INSERT OR REPLACE INTO ${TABLE_PREFIX}embeddings
+      INSERT OR REPLACE INTO ${DB_NAME}.embeddings
       (item_id, chunk_index, item_key, library_id, title, abstract, chunk_text, text_source, embedding, model_id, indexed_at, content_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
@@ -293,7 +469,7 @@ export class VectorStoreSQLite {
         const chunkIndex = embedding.chunkIndex ?? 0;
 
         await Zotero.DB.queryAsync(`
-          INSERT OR REPLACE INTO ${TABLE_PREFIX}embeddings
+          INSERT OR REPLACE INTO ${DB_NAME}.embeddings
           (item_id, chunk_index, item_key, library_id, title, abstract, chunk_text, text_source, embedding, model_id, indexed_at, content_hash)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
@@ -316,7 +492,7 @@ export class VectorStoreSQLite {
     this.logger.info(`Stored ${embeddings.length} embeddings`);
 
     // Verify storage
-    const verifyRows = await Zotero.DB.queryAsync(`SELECT COUNT(*) as count FROM ${TABLE_PREFIX}embeddings`);
+    const verifyRows = await Zotero.DB.queryAsync(`SELECT COUNT(*) as count FROM ${DB_NAME}.embeddings`);
     this.logger.info(`Verification: table now has ${verifyRows?.[0]?.count || 0} total embedding chunks`);
     this.invalidateCache();
   }
@@ -328,7 +504,7 @@ export class VectorStoreSQLite {
     await this.ensureInit();
 
     await Zotero.DB.queryAsync(`
-      DELETE FROM ${TABLE_PREFIX}embeddings WHERE item_id = ?
+      DELETE FROM ${DB_NAME}.embeddings WHERE item_id = ?
     `, [itemId]);
 
     this.logger.debug(`Deleted all chunks for item ${itemId}`);
@@ -346,7 +522,7 @@ export class VectorStoreSQLite {
     let chunkIndexes: number[] = [];
     try {
       const raw = await Zotero.DB.columnQueryAsync(
-        `SELECT chunk_index FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? ORDER BY chunk_index`,
+        `SELECT chunk_index FROM ${DB_NAME}.embeddings WHERE item_id = ? ORDER BY chunk_index`,
         [itemId]
       );
       chunkIndexes = (raw || []).map((v: any) => Number(v));
@@ -376,10 +552,10 @@ export class VectorStoreSQLite {
     this.logger.debug(`Getting summary embedding for item ${itemId}`);
 
     // Check existence first using lightweight query - safe in Zotero 8
-    const checkRow = await Zotero.DB.queryAsync(`SELECT item_id FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = 0`, [itemId]);
+    const checkRow = await Zotero.DB.queryAsync(`SELECT item_id FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = 0`, [itemId]);
     if (!checkRow || checkRow.length === 0) {
       // Try to get any chunk if summary doesn't exist
-      const anyChunk = await Zotero.DB.queryAsync(`SELECT item_id, chunk_index FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? ORDER BY chunk_index LIMIT 1`, [itemId]);
+      const anyChunk = await Zotero.DB.queryAsync(`SELECT item_id, chunk_index FROM ${DB_NAME}.embeddings WHERE item_id = ? ORDER BY chunk_index LIMIT 1`, [itemId]);
       if (!anyChunk || anyChunk.length === 0) {
         return undefined;
       }
@@ -400,16 +576,16 @@ export class VectorStoreSQLite {
     // Use parallel valueQueryAsync calls - most reliable method in Zotero 8
     try {
       const [item_key, library_id, title, text_source, model_id, indexed_at, content_hash, abstract, chunk_text, embedding] = await Promise.all([
-        Zotero.DB.valueQueryAsync(`SELECT item_key FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT library_id FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT title FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT text_source FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT model_id FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT indexed_at FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT content_hash FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT abstract FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT chunk_text FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-        Zotero.DB.valueQueryAsync(`SELECT embedding FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT item_key FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT library_id FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT title FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT text_source FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT model_id FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT indexed_at FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT content_hash FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT abstract FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT chunk_text FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+        Zotero.DB.valueQueryAsync(`SELECT embedding FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
       ]);
 
       // Check if row exists
@@ -525,10 +701,10 @@ export class VectorStoreSQLite {
     try {
       // Fetch item_ids and chunk_indexes as separate columns
       const rawIds = await Zotero.DB.columnQueryAsync(
-        `SELECT item_id FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`
+        `SELECT item_id FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`
       );
       const rawChunks = await Zotero.DB.columnQueryAsync(
-        `SELECT chunk_index FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`
+        `SELECT chunk_index FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`
       );
 
       if (rawIds && rawChunks && rawIds.length === rawChunks.length) {
@@ -551,7 +727,7 @@ export class VectorStoreSQLite {
     let embeddings: string[] = [];
     try {
       embeddings = await Zotero.DB.columnQueryAsync(
-        `SELECT embedding FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`
+        `SELECT embedding FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`
       ) || [];
     } catch (e) {
       this.logger.error(`getAll(): Failed to fetch embeddings column: ${e}`);
@@ -565,15 +741,15 @@ export class VectorStoreSQLite {
 
     // Step 3: Fetch other columns in parallel
     const [itemKeys, libraryIds, titles, textSources, modelIds, indexedAts, contentHashes, abstracts, chunkTexts] = await Promise.all([
-      Zotero.DB.columnQueryAsync(`SELECT item_key FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT library_id FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT title FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT text_source FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT model_id FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT indexed_at FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT content_hash FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT abstract FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
-      Zotero.DB.columnQueryAsync(`SELECT chunk_text FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT item_key FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT library_id FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT title FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT text_source FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT model_id FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT indexed_at FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT content_hash FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT abstract FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
+      Zotero.DB.columnQueryAsync(`SELECT chunk_text FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index`),
     ]);
 
     // Step 4: Assemble results
@@ -606,7 +782,7 @@ export class VectorStoreSQLite {
   private async getAllChunkKeys(): Promise<Array<{ itemId: number; chunkIndex: number }>> {
     // Try the batch query first
     const rows = await Zotero.DB.queryAsync(`
-      SELECT item_id, chunk_index FROM ${TABLE_PREFIX}embeddings ORDER BY item_id, chunk_index
+      SELECT item_id, chunk_index FROM ${DB_NAME}.embeddings ORDER BY item_id, chunk_index
     `);
 
     if (rows && rows.length > 0) {
@@ -633,7 +809,7 @@ export class VectorStoreSQLite {
         try {
           if (Zotero.DB.columnQueryAsync) {
             const indexes = await Zotero.DB.columnQueryAsync(
-              `SELECT chunk_index FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? ORDER BY chunk_index`,
+              `SELECT chunk_index FROM ${DB_NAME}.embeddings WHERE item_id = ? ORDER BY chunk_index`,
               [itemId]
             );
             if (indexes && indexes.length > 0) {
@@ -647,7 +823,7 @@ export class VectorStoreSQLite {
         // Fallback: try valueQueryAsync for single chunk (most items have chunk_index = 0)
         if (chunkIndexes.length === 0) {
           const singleIndex = await Zotero.DB.valueQueryAsync(
-            `SELECT chunk_index FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? LIMIT 1`,
+            `SELECT chunk_index FROM ${DB_NAME}.embeddings WHERE item_id = ? LIMIT 1`,
             [itemId]
           );
           if (singleIndex !== null && singleIndex !== undefined) {
@@ -675,7 +851,7 @@ export class VectorStoreSQLite {
   private async getChunkKeysByLibrary(libraryId: number): Promise<Array<{ itemId: number; chunkIndex: number }>> {
     // Try the batch query first
     const rows = await Zotero.DB.queryAsync(`
-      SELECT item_id, chunk_index FROM ${TABLE_PREFIX}embeddings
+      SELECT item_id, chunk_index FROM ${DB_NAME}.embeddings
       WHERE library_id = ? ORDER BY item_id, chunk_index
     `, [libraryId]);
 
@@ -703,7 +879,7 @@ export class VectorStoreSQLite {
         try {
           if (Zotero.DB.columnQueryAsync) {
             const indexes = await Zotero.DB.columnQueryAsync(
-              `SELECT chunk_index FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND library_id = ? ORDER BY chunk_index`,
+              `SELECT chunk_index FROM ${DB_NAME}.embeddings WHERE item_id = ? AND library_id = ? ORDER BY chunk_index`,
               [itemId, libraryId]
             );
             if (indexes && indexes.length > 0) {
@@ -717,7 +893,7 @@ export class VectorStoreSQLite {
         // Fallback: try valueQueryAsync for single chunk
         if (chunkIndexes.length === 0) {
           const singleIndex = await Zotero.DB.valueQueryAsync(
-            `SELECT chunk_index FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND library_id = ? LIMIT 1`,
+            `SELECT chunk_index FROM ${DB_NAME}.embeddings WHERE item_id = ? AND library_id = ? LIMIT 1`,
             [itemId, libraryId]
           );
           if (singleIndex !== null && singleIndex !== undefined) {
@@ -747,7 +923,7 @@ export class VectorStoreSQLite {
     try {
       if (Zotero.DB.columnQueryAsync) {
         const ids = await Zotero.DB.columnQueryAsync(`
-          SELECT DISTINCT item_id FROM ${TABLE_PREFIX}embeddings ORDER BY item_id
+          SELECT DISTINCT item_id FROM ${DB_NAME}.embeddings ORDER BY item_id
         `);
         return (ids || []).map((v: any) => Number(v)).filter((n: number) => Number.isFinite(n));
       }
@@ -756,7 +932,7 @@ export class VectorStoreSQLite {
     }
 
     const rows = await Zotero.DB.queryAsync(`
-      SELECT DISTINCT item_id FROM ${TABLE_PREFIX}embeddings ORDER BY item_id
+      SELECT DISTINCT item_id FROM ${DB_NAME}.embeddings ORDER BY item_id
     `);
     if (!rows) return [];
     return rows.map((r: any) => Number(r.item_id)).filter((n: number) => Number.isFinite(n));
@@ -773,7 +949,7 @@ export class VectorStoreSQLite {
     const metaRows = await Zotero.DB.queryAsync(`
       SELECT item_id, chunk_index, item_key, library_id, title, text_source,
              model_id, indexed_at, content_hash
-      FROM ${TABLE_PREFIX}embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
+      FROM ${DB_NAME}.embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
     `, [libraryId]);
 
     // Zotero 8 workaround for getByLibrary
@@ -794,12 +970,12 @@ export class VectorStoreSQLite {
 
               // Fetch all metadata fields in parallel
               const [item_key, title, text_source, model_id, indexed_at, content_hash] = await Promise.all([
-                Zotero.DB.valueQueryAsync(`SELECT item_key FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-                Zotero.DB.valueQueryAsync(`SELECT title FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-                Zotero.DB.valueQueryAsync(`SELECT text_source FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-                Zotero.DB.valueQueryAsync(`SELECT model_id FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-                Zotero.DB.valueQueryAsync(`SELECT indexed_at FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
-                Zotero.DB.valueQueryAsync(`SELECT content_hash FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex])
+                Zotero.DB.valueQueryAsync(`SELECT item_key FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+                Zotero.DB.valueQueryAsync(`SELECT title FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+                Zotero.DB.valueQueryAsync(`SELECT text_source FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+                Zotero.DB.valueQueryAsync(`SELECT model_id FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+                Zotero.DB.valueQueryAsync(`SELECT indexed_at FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex]),
+                Zotero.DB.valueQueryAsync(`SELECT content_hash FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?`, [itemId, chunkIndex])
               ]);
 
               row.item_key = item_key;
@@ -824,11 +1000,11 @@ export class VectorStoreSQLite {
     try {
       if (Zotero.DB.columnQueryAsync) {
         abstracts = await Zotero.DB.columnQueryAsync(`
-          SELECT abstract FROM ${TABLE_PREFIX}embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
+          SELECT abstract FROM ${DB_NAME}.embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
         `, [libraryId]);
       } else {
         const rows = await Zotero.DB.queryAsync(`
-          SELECT abstract FROM ${TABLE_PREFIX}embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
+          SELECT abstract FROM ${DB_NAME}.embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
         `, [libraryId]);
         if (rows) abstracts = rows.map((r: any) => r.abstract);
       }
@@ -841,11 +1017,11 @@ export class VectorStoreSQLite {
     try {
       if (Zotero.DB.columnQueryAsync) {
         embeddingStrs = await Zotero.DB.columnQueryAsync(`
-          SELECT embedding FROM ${TABLE_PREFIX}embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
+          SELECT embedding FROM ${DB_NAME}.embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
         `, [libraryId]);
       } else {
         const rows = await Zotero.DB.queryAsync(`
-          SELECT embedding FROM ${TABLE_PREFIX}embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
+          SELECT embedding FROM ${DB_NAME}.embeddings WHERE library_id = ? ORDER BY item_id, chunk_index
         `, [libraryId]);
         if (rows) embeddingStrs = rows.map((r: any) => r.embedding);
       }
@@ -863,13 +1039,13 @@ export class VectorStoreSQLite {
 
         if (row.abstract === undefined) {
             row.abstract = await Zotero.DB.valueQueryAsync(`
-            SELECT abstract FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?
+            SELECT abstract FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?
             `, [itemId, chunkIndex]);
         }
 
         if (row.embedding === undefined) {
             row.embedding = await Zotero.DB.valueQueryAsync(`
-            SELECT embedding FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? AND chunk_index = ?
+            SELECT embedding FROM ${DB_NAME}.embeddings WHERE item_id = ? AND chunk_index = ?
             `, [itemId, chunkIndex]);
         }
 
@@ -900,11 +1076,11 @@ export class VectorStoreSQLite {
     try {
       if (Zotero.DB.columnQueryAsync) {
         embeddingStrs = await Zotero.DB.columnQueryAsync(`
-          SELECT embedding FROM ${TABLE_PREFIX}embeddings ORDER BY item_id
+          SELECT embedding FROM ${DB_NAME}.embeddings ORDER BY item_id
         `);
       } else {
         const rows = await Zotero.DB.queryAsync(`
-          SELECT embedding FROM ${TABLE_PREFIX}embeddings ORDER BY item_id
+          SELECT embedding FROM ${DB_NAME}.embeddings ORDER BY item_id
         `);
         if (rows) {
           embeddingStrs = rows.map((r: any) => r.embedding);
@@ -919,7 +1095,7 @@ export class VectorStoreSQLite {
       const results = [];
       for (const id of ids) {
         const embeddingStr = await Zotero.DB.valueQueryAsync(`
-          SELECT embedding FROM ${TABLE_PREFIX}embeddings WHERE item_id = ?
+          SELECT embedding FROM ${DB_NAME}.embeddings WHERE item_id = ?
         `, [id]);
 
         results.push({
@@ -966,7 +1142,7 @@ export class VectorStoreSQLite {
     try {
       // valueQueryAsync is most reliable for existence checks
       const result = await Zotero.DB.valueQueryAsync(
-        `SELECT 1 FROM ${TABLE_PREFIX}embeddings WHERE item_id = ? LIMIT 1`,
+        `SELECT 1 FROM ${DB_NAME}.embeddings WHERE item_id = ? LIMIT 1`,
         [itemId]
       );
       return result !== null && result !== undefined;
@@ -984,7 +1160,7 @@ export class VectorStoreSQLite {
 
     try {
       const rows = await Zotero.DB.queryAsync(`
-        SELECT COUNT(*) as count FROM ${TABLE_PREFIX}embeddings WHERE item_id = ?
+        SELECT COUNT(*) as count FROM ${DB_NAME}.embeddings WHERE item_id = ?
       `, [itemId]);
       return rows?.[0]?.count || 0;
     } catch (e) {
@@ -999,7 +1175,7 @@ export class VectorStoreSQLite {
     await this.ensureInit();
 
     const rows = await Zotero.DB.queryAsync(`
-      SELECT content_hash FROM ${TABLE_PREFIX}embeddings WHERE item_id = ?
+      SELECT content_hash FROM ${DB_NAME}.embeddings WHERE item_id = ?
     `, [itemId]);
 
     if (!rows || rows.length === 0) return true;
@@ -1013,7 +1189,7 @@ export class VectorStoreSQLite {
     await this.ensureInit();
 
     await Zotero.DB.queryAsync(`
-      DELETE FROM ${TABLE_PREFIX}embeddings WHERE item_id = ?
+      DELETE FROM ${DB_NAME}.embeddings WHERE item_id = ?
     `, [itemId]);
 
     this.logger.debug(`Deleted embedding for item ${itemId}`);
@@ -1026,7 +1202,7 @@ export class VectorStoreSQLite {
   async clear(): Promise<void> {
     await this.ensureInit();
 
-    await Zotero.DB.queryAsync(`DELETE FROM ${TABLE_PREFIX}embeddings`);
+    await Zotero.DB.queryAsync(`DELETE FROM ${DB_NAME}.embeddings`);
     this.logger.info('Cleared all embeddings');
     this.invalidateCache();
   }
@@ -1039,7 +1215,7 @@ export class VectorStoreSQLite {
 
     try {
       const rows = await Zotero.DB.queryAsync(`
-        SELECT COUNT(*) as count FROM ${TABLE_PREFIX}embeddings
+        SELECT COUNT(*) as count FROM ${DB_NAME}.embeddings
       `);
 
       if (!rows || rows.length === 0) return 0;
@@ -1057,7 +1233,7 @@ export class VectorStoreSQLite {
 
     try {
       const rows = await Zotero.DB.queryAsync(`
-        SELECT COUNT(DISTINCT item_id) as count FROM ${TABLE_PREFIX}embeddings
+        SELECT COUNT(DISTINCT item_id) as count FROM ${DB_NAME}.embeddings
       `);
 
       if (!rows || rows.length === 0) return 0;
@@ -1080,7 +1256,7 @@ export class VectorStoreSQLite {
     let chunkCount = 0;
     try {
       const countResult = await Zotero.DB.valueQueryAsync(`
-        SELECT COUNT(*) FROM ${TABLE_PREFIX}embeddings
+        SELECT COUNT(*) FROM ${DB_NAME}.embeddings
       `);
       chunkCount = Number(countResult) || 0;
       this.logger.debug(`getStats(): Total chunks = ${chunkCount}`);
@@ -1092,7 +1268,7 @@ export class VectorStoreSQLite {
     let itemCount = 0;
     try {
       const itemCountResult = await Zotero.DB.valueQueryAsync(`
-        SELECT COUNT(DISTINCT item_id) FROM ${TABLE_PREFIX}embeddings
+        SELECT COUNT(DISTINCT item_id) FROM ${DB_NAME}.embeddings
       `);
       itemCount = Number(itemCountResult) || 0;
       this.logger.debug(`getStats(): Unique items = ${itemCount}`);
@@ -1104,7 +1280,7 @@ export class VectorStoreSQLite {
     let modelId = 'none';
     try {
       const modelResult = await Zotero.DB.valueQueryAsync(`
-        SELECT model_id FROM ${TABLE_PREFIX}embeddings LIMIT 1
+        SELECT model_id FROM ${DB_NAME}.embeddings LIMIT 1
       `);
       if (modelResult) {
         modelId = String(modelResult);
@@ -1118,7 +1294,7 @@ export class VectorStoreSQLite {
     let lastIndexed: Date | null = null;
     try {
       const lastResult = await Zotero.DB.valueQueryAsync(`
-        SELECT MAX(indexed_at) FROM ${TABLE_PREFIX}embeddings
+        SELECT MAX(indexed_at) FROM ${DB_NAME}.embeddings
       `);
       if (lastResult) {
         lastIndexed = new Date(String(lastResult));
@@ -1154,7 +1330,7 @@ export class VectorStoreSQLite {
     await this.ensureInit();
 
     const rows = await Zotero.DB.queryAsync(`
-      SELECT value FROM ${TABLE_PREFIX}metadata WHERE key = ?
+      SELECT value FROM ${DB_NAME}.metadata WHERE key = ?
     `, [key]);
 
     if (!rows || rows.length === 0) return undefined;
@@ -1175,7 +1351,7 @@ export class VectorStoreSQLite {
     const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
 
     await Zotero.DB.queryAsync(`
-      INSERT OR REPLACE INTO ${TABLE_PREFIX}metadata (key, value) VALUES (?, ?)
+      INSERT OR REPLACE INTO ${DB_NAME}.metadata (key, value) VALUES (?, ?)
     `, [key, stringValue]);
   }
 
@@ -1196,11 +1372,40 @@ export class VectorStoreSQLite {
   }
 
   /**
-   * Close (no-op since we use Zotero's main DB)
+   * Close the vector store and detach the database
    */
   async close(): Promise<void> {
+    this.invalidateCache();
+    await this.detachDatabase();
     this.initialized = false;
     this.logger.debug('SQLite store closed');
+  }
+
+  /**
+   * Delete the database file (for uninstall cleanup)
+   * Should be called after detaching the database
+   */
+  async deleteDatabase(): Promise<void> {
+    const dbPath = this.getDbPath();
+    this.logger.info(`Deleting database file: ${dbPath}`);
+
+    try {
+      // Make sure database is detached first
+      await this.detachDatabase();
+
+      // Delete the database file
+      await IOUtils.remove(dbPath, { ignoreAbsent: true });
+      this.logger.info('Database file deleted successfully');
+    } catch (error: any) {
+      this.logger.error(`Failed to delete database file: ${error?.message || error}`);
+    }
+  }
+
+  /**
+   * Get the database file path (for external use)
+   */
+  getDatabasePath(): string {
+    return this.getDbPath();
   }
 }
 

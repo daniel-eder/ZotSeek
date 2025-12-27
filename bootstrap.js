@@ -80,4 +80,50 @@ function shutdown({ id, version, resourceURI, rootURI }, reason) {
   }
 }
 
-function uninstall(data, reason) {}
+/**
+ * Uninstall cleanup - removes the ZotSeek database file
+ * This ensures no orphaned data remains after plugin removal
+ */
+async function uninstall(data, reason) {
+  Zotero.debug("[ZotSeek Bootstrap] Uninstalling...");
+
+  try {
+    // Delete the ZotSeek database file
+    const dbPath = PathUtils.join(Zotero.DataDirectory.dir, "zotseek.sqlite");
+    Zotero.debug("[ZotSeek Bootstrap] Deleting database: " + dbPath);
+
+    // Try to detach database first if Zotero.DB is available
+    if (Zotero.DB) {
+      try {
+        await Zotero.DB.queryAsync("DETACH DATABASE zotseek");
+        Zotero.debug("[ZotSeek Bootstrap] Database detached");
+      } catch (e) {
+        // Database may not be attached, that's fine
+        Zotero.debug("[ZotSeek Bootstrap] Database not attached (ok): " + e);
+      }
+    }
+
+    // Delete the database file
+    await IOUtils.remove(dbPath, { ignoreAbsent: true });
+    Zotero.debug("[ZotSeek Bootstrap] Database file deleted");
+
+    // Also delete any related files (journal, wal, shm)
+    await IOUtils.remove(dbPath + "-journal", { ignoreAbsent: true });
+    await IOUtils.remove(dbPath + "-wal", { ignoreAbsent: true });
+    await IOUtils.remove(dbPath + "-shm", { ignoreAbsent: true });
+
+    // Clear preferences
+    const prefBranch = Services.prefs.getBranch("extensions.zotero.zotseek.");
+    try {
+      prefBranch.deleteBranch("");
+      Zotero.debug("[ZotSeek Bootstrap] Preferences cleared");
+    } catch (e) {
+      Zotero.debug("[ZotSeek Bootstrap] Could not clear preferences: " + e);
+    }
+
+    Zotero.debug("[ZotSeek Bootstrap] Uninstall cleanup complete");
+  } catch (e) {
+    Zotero.debug("[ZotSeek Bootstrap] Uninstall error: " + e);
+    Zotero.logError(e);
+  }
+}

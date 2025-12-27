@@ -304,7 +304,7 @@ class ZotSeekPlugin {
     // Create "Index Selected" menu item
     const indexSelectedItem = doc.createXULElement('menuitem');
     indexSelectedItem.id = 'zotseek-index-selected';
-    indexSelectedItem.setAttribute('label', 'Index for ZotSeek');
+    indexSelectedItem.setAttribute('label', 'Index Selected for ZotSeek');
     indexSelectedItem.addEventListener('command', () => this.onIndexSelected());
 
     // Create "Index Collection" menu item
@@ -465,6 +465,7 @@ class ZotSeekPlugin {
       setText('zotseek-stat-chunks', stats.totalChunks.toLocaleString());
       setText('zotseek-stat-avgchunks', stats.avgChunksPerPaper.toString());
       setText('zotseek-stat-storage', stats.storageSize);
+      setText('zotseek-stat-dbpath', stats.databasePath || '-');
       setText('zotseek-stat-model', stats.modelId);
       setText('zotseek-stat-lastindexed', stats.lastIndexed);
     } catch (e) {
@@ -482,6 +483,7 @@ class ZotSeekPlugin {
     avgChunksPerPaper: number;
     modelId: string;
     storageSize: string;
+    databasePath: string;
     lastIndexed: string;
     lastIndexDuration?: string;
     indexedWithMode?: string;
@@ -491,12 +493,22 @@ class ZotSeekPlugin {
       await this.ensureStoreReady();
       if (!this.vectorStore) {
         this.logger.warn('getStats(): vectorStore is null');
+        // Try to get database path even if store is not ready
+        let databasePath = '-';
+        try {
+          const Z = getZotero();
+          if (Z?.DataDirectory?.dir) {
+            databasePath = Z.DataDirectory.dir + '/zotseek.sqlite';
+          }
+        } catch (e) { /* ignore */ }
+
         return {
           indexedPapers: 0,
           totalChunks: 0,
           avgChunksPerPaper: 0,
           modelId: 'none',
           storageSize: '0 KB',
+          databasePath,
           lastIndexed: 'Never',
         };
       }
@@ -557,24 +569,51 @@ class ZotSeekPlugin {
         lastIndexed = 'Never';
       }
 
+      // Get database path - use vectorStore method if available, otherwise construct it
+      let databasePath = '-';
+      try {
+        if (this.vectorStore && typeof this.vectorStore.getDatabasePath === 'function') {
+          databasePath = this.vectorStore.getDatabasePath();
+        } else {
+          // Fallback: construct path directly
+          const Z = getZotero();
+          if (Z?.DataDirectory?.dir) {
+            databasePath = Z.DataDirectory.dir + '/zotseek.sqlite';
+          }
+        }
+      } catch (e) {
+        this.logger.debug(`Could not get database path: ${e}`);
+      }
+
       return {
         indexedPapers: stats.indexedPapers,
         totalChunks: stats.totalChunks,
         avgChunksPerPaper: stats.avgChunksPerPaper,
         modelId: stats.modelId === 'none' ? 'None' : stats.modelId.replace('Xenova/', ''),
         storageSize,
+        databasePath,
         lastIndexed,
         lastIndexDuration,
         indexedWithMode,
       };
     } catch (error) {
       this.logger.error(`Failed to get stats: ${error}`);
+      // Try to get database path even on error
+      let databasePath = '-';
+      try {
+        const Z = getZotero();
+        if (Z?.DataDirectory?.dir) {
+          databasePath = Z.DataDirectory.dir + '/zotseek.sqlite';
+        }
+      } catch (e) { /* ignore */ }
+
       return {
         indexedPapers: 0,
         totalChunks: 0,
         avgChunksPerPaper: 0,
         modelId: 'Error',
         storageSize: 'Error',
+        databasePath,
         lastIndexed: 'Error',
       };
     }
