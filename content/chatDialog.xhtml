@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<?xml-stylesheet href="chrome://global/skin/" type="text/css"?>
+<?xml-stylesheet href="chrome://zotero/skin/zotero.css" type="text/css"?>
+
+<!DOCTYPE window>
+
+<window id="zotseek-chat-dialog" title="ZotSeek Chat" width="600" height="700" persist="width height screenX screenY"
+    xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul" xmlns:html="http://www.w3.org/1999/xhtml">
+
+    <script type="application/javascript">
+  < ![CDATA[
+            // The logic will be handled by the bundled chat-dialog.js
+            // which will be injected by the Zotero logic.
+        ]] >
+    </script>
+
+    <vbox flex="1" style="padding: 10px;">
+        <!-- Model Selection -->
+        <hbox align="center" style="margin-bottom: 10px;">
+            <label value="Model:" />
+            <menulist id="zotseek-chat-model-selector" flex="1">
+                <menupopup id="zotseek-chat-model-popup">
+                    <menuitem label="Loading models..." value="" disabled="true" />
+                </menupopup>
+            </menulist>
+            <button id="zotseek-chat-clear" label="Clear Chat" />
+        </hbox>
+
+        <separator class="thin" />
+
+        <!-- Chat History -->
+        <vbox id="zotseek-chat-history" flex="1"
+            style="overflow-y: auto; background-color: white; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;">
+            <!-- Messages will be injected here -->
+            <description style="color: #666; font-style: italic;">Start a conversation with your library...
+            </description>
+        </vbox>
+
+        <!-- Input Area -->
+        <hbox align="end">
+            <html:textarea id="zotseek-chat-input" flex="1" rows="3" placeholder="Type your message here..."
+                style="font-family: inherit; font-size: 14px; padding: 5px; resize: none;" />
+            <vbox>
+                <button id="zotseek-chat-send" label="Send" default="true" />
+            </vbox>
+        </hbox>
+    </vbox>
+
+    <style xmlns="http://www.w3.org/1999/xhtml">
+        .message-user {
+            align-self: flex-end;
+            background-color: #e3f2fd;
+            border-radius: 8px;
+            padding: 8px;
+            margin: 5px 0;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message-assistant {
+            align-self: flex-start;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            padding: 8px;
+            margin: 5px 0;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message-system {
+            align-self: center;
+            color: #757575;
+            font-size: 12px;
+            margin: 10px 0;
+        }
+
+        .message-error {
+            align-self: center;
+            color: #d32f2f;
+            font-style: italic;
+            margin: 5px 0;
+        }
+    </style>
+</window>

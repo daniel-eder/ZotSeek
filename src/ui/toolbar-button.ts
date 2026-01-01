@@ -7,6 +7,7 @@
 import { Logger } from '../utils/logger';
 import { searchDialogWithVTable } from './search-dialog-with-vtable';
 import { similarDocumentsWrapper } from './similar-documents-wrapper';
+import { chatDialogWrapper } from './chat-dialog-wrapper';
 
 declare const Zotero: any;
 declare const document: any;
@@ -116,11 +117,11 @@ export class ToolbarButton {
   private insertButton(toolbar: any, button: any): void {
     const doc = toolbar.ownerDocument;
     const searchBox = toolbar.querySelector('#zotero-tb-search');
-    
+
     // Create a separator to visually separate from search
     const separator = doc.createXULElement('toolbarseparator');
     separator.id = this.separatorId;
-    
+
     if (searchBox) {
       // Insert button, then separator before search box
       toolbar.insertBefore(separator, searchBox);
@@ -192,6 +193,14 @@ export class ToolbarButton {
             icon: 'chrome://zotseek/content/icons/icon-toolbar.svg',
             onCommand: () => {
               this.handleClick();
+            },
+          },
+          {
+            menuType: 'menuitem',
+            l10nID: 'zotseek-menuTools-chat',
+            icon: 'chrome://zotseek/content/icons/icon-toolbar.svg',
+            onCommand: () => {
+              chatDialogWrapper.open();
             },
           },
         ],
@@ -323,7 +332,7 @@ export class ToolbarButton {
 
       const title = item.getField('title') || attachment.getField('title');
       this.logger.info(`Reader button clicked - finding similar documents for: ${title} (ID: ${item.id})`);
-      
+
       // Open the similar documents dialog for the parent item
       similarDocumentsWrapper.open(item);
     } catch (error) {

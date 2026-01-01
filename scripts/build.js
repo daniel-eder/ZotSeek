@@ -196,6 +196,24 @@ const searchDialogBuildOptions = {
   logLevel: 'info',
 };
 
+// Chat dialog build configuration
+const chatDialogBuildOptions = {
+  entryPoints: [path.resolve(srcDir, 'ui/chat-dialog.ts')],
+  bundle: true,
+  outfile: path.resolve(buildDir, 'content/scripts/chat-dialog.js'),
+  format: 'iife',
+  platform: 'browser',
+  target: ['firefox128'],
+  minify: !isDev,
+  sourcemap: isDev ? 'inline' : false,
+  define: {
+    'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
+  },
+  external: [],
+  logLevel: 'info',
+};
+
+
 // Similar documents dialog build configuration
 const similarDocsBuildOptions = {
   entryPoints: [path.resolve(srcDir, 'ui/similar-documents-dialog.ts')],
@@ -237,6 +255,11 @@ async function build() {
       console.log('Building search dialog with VirtualizedTable...');
       await esbuild.build(searchDialogBuildOptions);
       console.log('Search dialog bundle complete!');
+
+      // Build chat dialog
+      console.log('Building chat dialog...');
+      await esbuild.build(chatDialogBuildOptions);
+      console.log('Chat dialog bundle complete!');
 
       await esbuild.build(similarDocsBuildOptions);
       console.log('Similar documents dialog bundle complete!');

@@ -27,6 +27,7 @@ import { searchDialogWithVTable } from './ui/search-dialog-with-vtable';
 import { similarDocumentsWrapper } from './ui/similar-documents-wrapper';
 import { toolbarButton } from './ui/toolbar-button';
 import { preferencesManager } from './ui/preferences';
+import { chatDialogWrapper } from './ui/chat-dialog-wrapper';
 
 interface PluginInfo {
   id: string;
@@ -300,6 +301,12 @@ class ZotSeekPlugin {
       openSearchItem.setAttribute('label', 'Open ZotSeek...');
       openSearchItem.addEventListener('command', () => searchDialogWithVTable.open());
 
+      // Create "Chat with AI" menu item
+      const openChatItem = doc.createXULElement('menuitem');
+      openChatItem.id = 'zotseek-open-chat';
+      openChatItem.setAttribute('label', 'ZotSeek LLM Chat...');
+      openChatItem.addEventListener('command', () => chatDialogWrapper.open());
+
       // Create "Index Selected" menu item
       const indexSelectedItem = doc.createXULElement('menuitem');
       indexSelectedItem.id = 'zotseek-index-selected';
@@ -321,6 +328,7 @@ class ZotSeekPlugin {
       itemMenu.appendChild(itemSeparator);
       itemMenu.appendChild(findSimilarItem);
       itemMenu.appendChild(openSearchItem);
+      itemMenu.appendChild(openChatItem);
       itemMenu.appendChild(indexSelectedItem);
       itemMenu.appendChild(indexCollectionItem);
       itemMenu.appendChild(indexLibraryItem);

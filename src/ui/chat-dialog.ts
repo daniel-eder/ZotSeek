@@ -1,0 +1,180 @@
+/**
+ * ZotSeek Chat Dialog
+ * Logic for the chat interface
+ */
+
+import { Logger } from '../utils/logger';
+import { LLMConfig, LLMMessage, llmClient } from '../core/llm-client';
+
+declare const Zotero: any;
+declare const Services: any;
+
+export class ChatDialog {
+    private logger: Logger;
+    private window: Window;
+    private currentMessages: LLMMessage[] = [];
+    private llmModels: LLMConfig[] = [];
+    private selectedModelId: string = '';
+
+    constructor(window: Window) {
+        this.logger = new Logger('ChatDialog');
+        this.window = window;
+        this.init();
+    }
+
+    private init(): void {
+        this.logger.info('Initializing chat dialog');
+
+        // Load models from preferences
+        this.loadModels();
+
+        // Set up event listeners
+        const sendBtn = this.window.document.getElementById('zotseek-chat-send');
+        const input = this.window.document.getElementById('zotseek-chat-input') as HTMLTextAreaElement;
+        const clearBtn = this.window.document.getElementById('zotseek-chat-clear');
+        const modelSelector = this.window.document.getElementById('zotseek-chat-model-selector') as any;
+
+        if (sendBtn) sendBtn.addEventListener('command', () => this.handleSendMessage());
+        if (clearBtn) clearBtn.addEventListener('command', () => this.clearChat());
+        if (input) {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.handleSendMessage();
+                }
+            });
+        }
+
+        if (modelSelector) {
+            modelSelector.addEventListener('command', () => {
+                this.selectedModelId = modelSelector.selectedItem?.value;
+                this.logger.info(`Model selected: ${this.selectedModelId}`);
+            });
+        }
+
+        // Populate model selector
+        this.updateModelSelector();
+
+        // Auto-focus input
+        if (input) input.focus();
+    }
+
+    private loadModels(): void {
+        try {
+            const modelsStr = Zotero.Prefs.get('zotseek.llmModels', true) || '[]';
+            this.llmModels = JSON.parse(modelsStr);
+            this.selectedModelId = Zotero.Prefs.get('zotseek.defaultLLM', true) || (this.llmModels[0]?.id || '');
+        } catch (e) {
+            this.logger.error(`Failed to load models: ${e}`);
+        }
+    }
+
+    private updateModelSelector(): void {
+        const popup = this.window.document.getElementById('zotseek-chat-model-popup');
+        const selector = this.window.document.getElementById('zotseek-chat-model-selector') as any;
+        if (!popup || !selector) return;
+
+        while (popup.firstChild) popup.removeChild(popup.firstChild);
+
+        if (this.llmModels.length === 0) {
+            const item = this.createMenuItem('No models configured', '');
+            item.setAttribute('disabled', 'true');
+            popup.appendChild(item);
+            return;
+        }
+
+        this.llmModels.forEach(model => {
+            const item = this.createMenuItem(model.label, model.id);
+            popup.appendChild(item);
+        });
+
+        // Set selected index
+        const index = this.llmModels.findIndex(m => m.id === this.selectedModelId);
+        if (index !== -1) {
+            selector.selectedIndex = index;
+        } else if (this.llmModels.length > 0) {
+            selector.selectedIndex = 0;
+            this.selectedModelId = this.llmModels[0].id;
+        }
+    }
+
+    private createMenuItem(label: string, value: string): Element {
+        const item = this.window.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'menuitem');
+        item.setAttribute('label', label);
+        item.setAttribute('value', value);
+        return item;
+    }
+
+    private async handleSendMessage(): Promise<void> {
+        const input = this.window.document.getElementById('zotseek-chat-input') as HTMLTextAreaElement;
+        if (!input) return;
+
+        const content = input.value.trim();
+        if (!content) return;
+
+        if (!this.selectedModelId) {
+            this.addMessage('error', 'Please select a model first.');
+            return;
+        }
+
+        const config = this.llmModels.find(m => m.id === this.selectedModelId);
+        if (!config) {
+            this.addMessage('error', 'Selected model configuration not found.');
+            return;
+        }
+
+        // Add user message
+        this.addMessage('user', content);
+        input.value = '';
+
+        try {
+            this.addMessage('system', 'Thinking...');
+            const response = await llmClient.chat(config, this.currentMessages);
+            this.removeLastMessage(); // Remove "Thinking..."
+            this.addMessage('assistant', response);
+        } catch (e) {
+            this.removeLastMessage();
+            this.addMessage('error', `Error: ${e}`);
+        }
+    }
+
+    private addMessage(role: 'user' | 'assistant' | 'system' | 'error', content: string): void {
+        const history = this.window.document.getElementById('zotseek-chat-history');
+        if (!history) return;
+
+        if (role === 'user' || role === 'assistant') {
+            this.currentMessages.push({ role: role as any, content });
+        }
+
+        const msgDiv = this.window.document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+        msgDiv.setAttribute('class', `message-${role}`);
+        msgDiv.textContent = content;
+
+        // Simple line break handling
+        msgDiv.style.whiteSpace = 'pre-wrap';
+
+        history.appendChild(msgDiv);
+        history.scrollTop = history.scrollHeight;
+    }
+
+    private removeLastMessage(): void {
+        const history = this.window.document.getElementById('zotseek-chat-history');
+        if (history && history.lastChild) {
+            history.removeChild(history.lastChild);
+        }
+    }
+
+    private clearChat(): void {
+        this.currentMessages = [];
+        const history = this.window.document.getElementById('zotseek-chat-history');
+        if (history) {
+            while (history.firstChild) history.removeChild(history.firstChild);
+            this.addMessage('system', 'Conversation cleared.');
+        }
+    }
+}
+
+// Initialization
+window.addEventListener('load', () => {
+    (window as any).chatDialog = new ChatDialog(window);
+});
