@@ -1,19 +1,18 @@
 /**
  * Embedding Pipeline - Generate embeddings for semantic search
- *
- * Uses ChromeWorker + Transformers.js for high quality neural embeddings.
  */
 
 import { Logger } from '../utils/logger';
+import {
+  IEmbeddingProvider,
+  LocalProvider,
+  OpenAIProvider,
+  GoogleProvider,
+  GenericProvider,
+  EmbeddingResult
+} from './embedding-providers';
 
 declare const Zotero: any;
-declare const ChromeWorker: any;
-
-export interface EmbeddingResult {
-  embedding: number[];
-  modelId: string;
-  processingTimeMs: number;
-}
 
 export interface EmbeddingProgress {
   current: number;
@@ -24,25 +23,12 @@ export interface EmbeddingProgress {
 
 export type ProgressCallback = (progress: EmbeddingProgress) => void;
 
-// Embedding configuration - nomic-embed-text-v1.5
-// 8192 token context, 768 dimensions, Matryoshka-enabled
-// Uses instruction prefixes: search_document: and search_query:
-// See: https://huggingface.co/nomic-ai/nomic-embed-text-v1.5
-// Note: Model files from nomic-ai stored in Xenova directory structure for Transformers.js
-export const EMBEDDING_CONFIG = {
-  dimensions: 768,  // nomic-embed-v1.5 outputs 768 dimensions
-  transformersModelId: 'Xenova/nomic-embed-text-v1.5',
-  maxTokens: 8192,  // 8K context window
-};
-
 /**
- * Embedding Pipeline with ChromeWorker support
+ * Embedding Pipeline that delegates to a provider
  */
 export class EmbeddingPipeline {
   private logger: Logger;
-  private worker: any = null;
-  private workerReady = false;
-  private pendingJobs = new Map<string, { resolve: Function; reject: Function }>();
+  private provider: IEmbeddingProvider | null = null;
   private ready = false;
 
   constructor() {
@@ -50,146 +36,64 @@ export class EmbeddingPipeline {
   }
 
   /**
-   * Initialize the embedding pipeline
+   * Initialize the embedding pipeline by selecting the correct provider
    */
   async init(): Promise<void> {
     if (this.ready) return;
 
-    this.logger.info('Initializing embedding pipeline with Transformers.js');
-    await this.initWorker();  // Will throw on failure
-    this.logger.info('Using Transformers.js via ChromeWorker');
+    this.logger.info('Initializing embedding pipeline...');
 
-    this.ready = true;
-  }
+    try {
+      // Load configuration from Zotero preferences
+      const providerType = Zotero.Prefs.get('zotseek.embeddingProvider', true) || 'local';
+      const modelId = Zotero.Prefs.get('zotseek.embeddingModel', true);
+      const apiKey = Zotero.Prefs.get('zotseek.apiKey', true);
+      const apiEndpoint = Zotero.Prefs.get('zotseek.apiEndpoint', true);
 
-  /**
-   * Initialize ChromeWorker for Transformers.js
-   */
-  private async initWorker(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Get worker script path
-        const workerPath = 'chrome://zotseek/content/scripts/embedding-worker.js';
+      this.logger.info(`Using embedding provider: ${providerType}`);
 
-        this.logger.info(`Creating ChromeWorker: ${workerPath}`);
-        this.worker = new ChromeWorker(workerPath);
-
-        const timeout = setTimeout(() => {
-          reject(new Error('Worker initialization timeout'));
-        }, 30000);
-
-        this.worker.onmessage = (event: any) => {
-          const { type, status, jobId, error, embedding, modelId, processingTimeMs, message, level, data } = event.data;
-
-          if (type === 'log') {
-            // Handle log messages from worker
-            const logMessage = data ? `${message} - ${JSON.stringify(data)}` : message;
-            switch(level) {
-              case 'error':
-                this.logger.error(logMessage);
-                break;
-              case 'warn':
-                this.logger.warn(logMessage);
-                break;
-              case 'info':
-              default:
-                this.logger.info(logMessage);
-                break;
-            }
-          } else if (type === 'status') {
-            // Only log important status updates, suppress repetitive loading progress
-            if (status !== 'loading' || !message?.includes('Loading model:')) {
-              this.logger.info(`Worker status: ${status} - ${message}`);
-            }
-            if (status === 'ready') {
-              clearTimeout(timeout);
-              this.workerReady = true;
-              resolve();
-            }
-          } else if (type === 'error') {
-            this.logger.error(`Worker error: ${error}`);
-            if (jobId && this.pendingJobs.has(jobId)) {
-              const job = this.pendingJobs.get(jobId)!;
-              this.pendingJobs.delete(jobId);
-              job.reject(new Error(error));
-            } else {
-              clearTimeout(timeout);
-              reject(new Error(error));
-            }
-          } else if (type === 'embedding' && jobId) {
-            const job = this.pendingJobs.get(jobId);
-            if (job) {
-              this.pendingJobs.delete(jobId);
-              job.resolve({ embedding, modelId, processingTimeMs });
-            }
-          }
-        };
-
-        this.worker.onerror = (error: any) => {
-          this.logger.error('Worker error:', error);
-          clearTimeout(timeout);
-          reject(error);
-        };
-
-        // Initialize the worker
-        this.worker.postMessage({ type: 'init' });
-
-      } catch (error) {
-        this.logger.error('Failed to create ChromeWorker:', error);
-        reject(error);
+      switch (providerType) {
+        case 'openai':
+          this.provider = new OpenAIProvider(apiKey, modelId || 'text-embedding-3-small');
+          break;
+        case 'google':
+          this.provider = new GoogleProvider(apiKey, modelId || 'text-embedding-004');
+          break;
+        case 'generic':
+          this.provider = new GenericProvider(apiEndpoint, apiKey, modelId || 'custom-model');
+          break;
+        case 'local':
+        default:
+          this.provider = new LocalProvider();
+          break;
       }
-    });
+
+      await this.provider.init();
+      this.ready = true;
+      this.logger.info(`Embedding pipeline ready with ${this.provider.getModelId()}`);
+    } catch (error) {
+      this.logger.error(`Failed to initialize embedding pipeline: ${error}`);
+      throw error;
+    }
   }
 
   /**
-   * Generate embedding for text using worker
-   * @param text - Text to embed
-   * @param isQuery - If true, embed as search query; if false, embed as document
-   */
-  private async embedWithWorker(text: string, isQuery: boolean = false): Promise<EmbeddingResult> {
-    return new Promise((resolve, reject) => {
-      const jobId = Math.random().toString(36).substring(2, 15);
-
-      this.pendingJobs.set(jobId, { resolve, reject });
-
-      this.worker.postMessage({
-        type: 'embed',
-        jobId,
-        data: { text, isQuery },
-      });
-
-      // Timeout for individual embedding
-      // With smaller chunks (~2000 tokens), embeddings should take ~3-10 seconds
-      // First embedding may be slower due to WASM compilation
-      setTimeout(() => {
-        if (this.pendingJobs.has(jobId)) {
-          this.pendingJobs.delete(jobId);
-          reject(new Error('Embedding timeout'));
-        }
-      }, 60000); // 60 seconds - enough for first-run WASM compilation
-    });
-  }
-
-  /**
-   * Generate embedding for a single text
-   * @param text - Text to embed
-   * @param isQuery - If true, embed as search query; if false, embed as document
+   * Generate embedding for text
    */
   async embed(text: string, isQuery: boolean = false): Promise<EmbeddingResult> {
     if (!this.ready) {
       await this.init();
     }
 
-    if (!this.workerReady) {
-      throw new Error('Embedding worker not ready. Please ensure Transformers.js is initialized.');
+    if (!this.provider) {
+      throw new Error('Embedding provider not initialized');
     }
 
-    return this.embedWithWorker(text, isQuery);
+    return this.provider.embed(text, isQuery);
   }
 
   /**
    * Convenience method for embedding search queries
-   * Uses the search_query: prefix for better retrieval
    */
   async embedQuery(query: string): Promise<EmbeddingResult> {
     return this.embed(query, true);
@@ -197,7 +101,6 @@ export class EmbeddingPipeline {
 
   /**
    * Convenience method for embedding documents
-   * Uses the search_document: prefix for better retrieval
    */
   async embedDocument(text: string): Promise<EmbeddingResult> {
     return this.embed(text, false);
@@ -205,7 +108,6 @@ export class EmbeddingPipeline {
 
   /**
    * Generate embeddings for multiple texts with progress callback
-   * Always embeds as documents (isQuery=false) since this is for indexing
    */
   async embedBatch(
     texts: { id: number; text: string; title: string }[],
@@ -231,7 +133,6 @@ export class EmbeddingPipeline {
       }
 
       try {
-        // Always use embedDocument for batch indexing
         const result = await this.embedDocument(text);
         results.set(id, result);
       } catch (error) {
@@ -239,7 +140,7 @@ export class EmbeddingPipeline {
       }
 
       // Yield to UI thread periodically
-      if (i % 10 === 0) {
+      if (i % 5 === 0) {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
@@ -268,42 +169,39 @@ export class EmbeddingPipeline {
    */
   reset(): void {
     this.logger.info('Resetting embedding pipeline');
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
+    if (this.provider?.destroy) {
+      this.provider.destroy();
     }
-    this.workerReady = false;
+    this.provider = null;
     this.ready = false;
-    this.pendingJobs.clear();
   }
 
   /**
    * Get current model ID
    */
   getModelId(): string {
-    return EMBEDDING_CONFIG.transformersModelId;
+    return this.provider ? this.provider.getModelId() : 'unknown';
   }
 
   /**
    * Get model info
    */
-  getModelInfo(): { id: string; dimensions: number; description: string } {
+  getModelInfo(): { id: string; dimensions?: number; description: string } {
+    const id = this.getModelId();
     return {
-      id: this.getModelId(),
-      dimensions: EMBEDDING_CONFIG.dimensions,
-      description: 'Transformers.js nomic-embed-v1.5 (768 dims, 8192 tokens, instruction-aware)',
+      id,
+      description: `Embedding provider: ${id}`,
     };
   }
 
   /**
-   * Cleanup worker
+   * Cleanup
    */
   destroy(): void {
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
+    if (this.provider?.destroy) {
+      this.provider.destroy();
     }
-    this.pendingJobs.clear();
+    this.provider = null;
   }
 }
 
