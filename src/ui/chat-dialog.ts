@@ -6,6 +6,7 @@
 import { Logger } from '../utils/logger';
 import { LLMConfig, LLMMessage, llmClient } from '../core/llm-client';
 import { getZotero } from '../utils/zotero-helper';
+import { zoteroTools } from '../core/llm-tools';
 
 declare const Zotero: any;
 declare const Services: any;
@@ -133,34 +134,98 @@ export class ChatDialog {
         const Z = getZotero();
         const systemPrompt = Z.Prefs.get('zotseek.llmSystemPrompt', true) || '';
 
-        const messagesToSend = [...this.currentMessages];
+        const messagesToSend: LLMMessage[] = [];
         if (systemPrompt) {
-            // Check if there's already a system message and replace it if so, otherwise unshift
-            const existingSystemIndex = messagesToSend.findIndex(m => m.role === 'system');
-            if (existingSystemIndex !== -1) {
-                messagesToSend[existingSystemIndex] = { role: 'system', content: systemPrompt };
-            } else {
-                messagesToSend.unshift({ role: 'system', content: systemPrompt });
-            }
+            messagesToSend.push({ role: 'system', content: systemPrompt });
         }
+        messagesToSend.push(...this.currentMessages);
 
         try {
-            this.addMessage('system', 'Thinking...');
-            const response = await llmClient.chat(config, messagesToSend);
-            this.removeLastMessage(); // Remove "Thinking..."
-            this.addMessage('assistant', response);
+            let turns = 0;
+            const maxTurns = 5;
+
+            while (turns < maxTurns) {
+                turns++;
+
+                this.addMessage('system', 'Thinking...');
+                const response = await llmClient.chat(config, messagesToSend, zoteroTools.getToolDefinitions());
+                this.removeLastMessage(); // Remove "Thinking..."
+
+                const assistantMsg: LLMMessage = {
+                    role: 'assistant',
+                    content: response.content || '',
+                    tool_calls: response.tool_calls
+                };
+
+                // Add to history and UI
+                if (assistantMsg.content) {
+                    this.addMessage('assistant', assistantMsg.content, assistantMsg);
+                } else if (assistantMsg.tool_calls) {
+                    // Even if no content, we need to push it to history for context
+                    this.currentMessages.push(assistantMsg);
+                }
+                messagesToSend.push(assistantMsg);
+
+                // If there are tool calls, handle them
+                if (response.tool_calls && response.tool_calls.length > 0) {
+                    for (const toolCall of response.tool_calls) {
+                        const toolName = toolCall.function.name;
+                        const toolArgs = JSON.parse(toolCall.function.arguments);
+
+                        this.addMessage('system', `Calling tool: ${toolName}...`);
+
+                        const toolDef = zoteroTools.getToolDefinitions().find(t => t.name === toolName);
+                        let result = '';
+                        if (toolDef) {
+                            try {
+                                result = await toolDef.execute(toolArgs);
+                            } catch (err) {
+                                result = `Error executing tool ${toolName}: ${err}`;
+                            }
+                        } else {
+                            result = `Error: Tool ${toolName} not found.`;
+                        }
+
+                        this.removeLastMessage(); // Remove "Calling tool..."
+
+                        const toolMsg: LLMMessage = {
+                            role: 'tool',
+                            tool_call_id: toolCall.id,
+                            name: toolName,
+                            content: result
+                        };
+
+                        this.currentMessages.push(toolMsg);
+                        messagesToSend.push(toolMsg);
+                    }
+
+                    // Continue the loop to get the next response from LLM
+                    continue;
+                }
+
+                // No more tool calls, finish
+                break;
+            }
+
+            if (turns >= maxTurns) {
+                this.addMessage('error', 'Reached maximum number of tool execution turns.');
+            }
         } catch (e) {
             this.removeLastMessage();
             this.addMessage('error', `Error: ${e}`);
         }
     }
 
-    private addMessage(role: 'user' | 'assistant' | 'system' | 'error', content: string): void {
+    private addMessage(role: 'user' | 'assistant' | 'system' | 'error', content: string, fullMsg?: LLMMessage): void {
         const history = this.window.document.getElementById('zotseek-chat-history');
         if (!history) return;
 
         if (role === 'user' || role === 'assistant') {
-            this.currentMessages.push({ role: role as any, content });
+            if (fullMsg) {
+                this.currentMessages.push(fullMsg);
+            } else {
+                this.currentMessages.push({ role: role as any, content });
+            }
         }
 
         const msgDiv = this.window.document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
