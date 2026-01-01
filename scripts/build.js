@@ -82,10 +82,10 @@ function copyTransformersV3Files() {
   // Fallback: onnxruntime-web nested in transformers
   const ortDir = path.resolve(__dirname, '../node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist');
   const wasmDestDir = path.resolve(buildDir, 'content/wasm');
-  
+
   // Ensure destination exists
   fs.mkdirSync(wasmDestDir, { recursive: true });
-  
+
   // Files needed for v3 - ONNX Runtime WASM files
   // v3 uses JSEP (JavaScript Execution Provider) variants
   const v3Files = [
@@ -95,7 +95,7 @@ function copyTransformersV3Files() {
     'ort-wasm-simd-threaded.mjs',
     'ort-wasm-simd-threaded.wasm',
   ];
-  
+
   let copiedCount = 0;
   for (const file of v3Files) {
     // Try transformers dist first, then onnxruntime-web
@@ -103,9 +103,9 @@ function copyTransformersV3Files() {
     if (!fs.existsSync(srcPath)) {
       srcPath = path.join(ortDir, file);
     }
-    
+
     const destPath = path.join(wasmDestDir, file);
-    
+
     if (fs.existsSync(srcPath)) {
       fs.copyFileSync(srcPath, destPath);
       console.log(`  Copied v3 WASM file: ${file}`);
@@ -114,7 +114,7 @@ function copyTransformersV3Files() {
       console.warn(`  Warning: v3 WASM file not found: ${file}`);
     }
   }
-  
+
   if (copiedCount > 0) {
     console.log(`Copied ${copiedCount} Transformers.js v3 WASM files`);
   } else {
@@ -237,10 +237,10 @@ async function build() {
       console.log('Building search dialog with VirtualizedTable...');
       await esbuild.build(searchDialogBuildOptions);
       console.log('Search dialog bundle complete!');
-      
+
       await esbuild.build(similarDocsBuildOptions);
       console.log('Similar documents dialog bundle complete!');
-      
+
       console.log('Build complete!');
     }
   } catch (error) {
