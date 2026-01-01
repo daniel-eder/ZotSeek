@@ -23,30 +23,32 @@ class PreferencesManager {
   /**
    * Initialize the preference pane
    */
-  async init(window: Window): Promise<void> {
+  async init(window: Window, paneId: string): Promise<void> {
     this.window = window;
-    this.logger.info('Initializing preference pane');
+    this.logger.info(`Initializing preference pane: ${paneId}`);
 
     try {
       // Initialize preferences
-      this.initPreferences();
+      this.initPreferences(paneId);
 
       // Set up event listeners
-      this.initEventListeners();
+      this.initEventListeners(paneId);
 
-      // Auto-load stats
-      await this.loadStatsAndCheckMismatch();
+      // Auto-load stats only for general pane
+      if (paneId === 'general') {
+        await this.loadStatsAndCheckMismatch();
+      }
 
-      this.logger.info('Preference pane initialized successfully');
+      this.logger.info(`Preference pane ${paneId} initialized successfully`);
     } catch (error) {
-      this.logger.error(`Failed to initialize preferences: ${error}`);
+      this.logger.error(`Failed to initialize preference pane ${paneId}: ${error}`);
     }
   }
 
   /**
    * Initialize preference values in UI elements
    */
-  private initPreferences(): void {
+  private initPreferences(paneId: string): void {
     if (!this.window) return;
     const doc = this.window.document;
     const Z = getZotero();
@@ -74,181 +76,189 @@ class PreferencesManager {
       this.currentModels = [];
     }
 
-    this.logger.debug(`Loaded preferences: ${JSON.stringify(prefs)}`);
+    this.logger.debug(`Loaded preferences for ${paneId}`);
 
-    // Set menulist values
-    this.setMenulistValue('zotseek-pref-indexingMode', prefs.indexingMode);
-    this.setMenulistValue('zotseek-pref-embeddingProvider', prefs.embeddingProvider);
+    if (paneId === 'general') {
+      // Set menulist values
+      this.setMenulistValue('zotseek-pref-indexingMode', prefs.indexingMode);
+      this.setMenulistValue('zotseek-pref-embeddingProvider', prefs.embeddingProvider);
 
-    // Set input values
-    this.setInputValue('zotseek-pref-maxTokens', prefs.maxTokens);
-    this.setInputValue('zotseek-pref-maxChunksPerPaper', prefs.maxChunksPerPaper);
-    this.setInputValue('zotseek-pref-topK', prefs.topK);
-    this.setInputValue('zotseek-pref-minSimilarity', prefs.minSimilarity);
-    this.setInputValue('zotseek-pref-embeddingModel', prefs.embeddingModel);
-    this.setInputValue('zotseek-pref-apiKey', prefs.apiKey);
-    this.setInputValue('zotseek-pref-apiEndpoint', prefs.apiEndpoint);
+      // Set input values
+      this.setInputValue('zotseek-pref-maxTokens', prefs.maxTokens);
+      this.setInputValue('zotseek-pref-maxChunksPerPaper', prefs.maxChunksPerPaper);
+      this.setInputValue('zotseek-pref-topK', prefs.topK);
+      this.setInputValue('zotseek-pref-minSimilarity', prefs.minSimilarity);
+      this.setInputValue('zotseek-pref-embeddingModel', prefs.embeddingModel);
+      this.setInputValue('zotseek-pref-apiKey', prefs.apiKey);
+      this.setInputValue('zotseek-pref-apiEndpoint', prefs.apiEndpoint);
 
-    // Set checkbox values
-    this.setCheckboxValue('zotseek-pref-excludeBooks', prefs.excludeBooks);
+      // Set checkbox values
+      this.setCheckboxValue('zotseek-pref-excludeBooks', prefs.excludeBooks);
 
-    // Update LLM UI
-    this.refreshLLMList();
-    this.updateDefaultLLMDropdown(prefs.defaultLLM);
+      // Update visibility of provider fields
+      this.updateProviderFieldsVisibility(prefs.embeddingProvider);
+    }
 
-    // Update visibility of provider fields
-    this.updateProviderFieldsVisibility(prefs.embeddingProvider);
+    if (paneId === 'llm-chat') {
+      // Update LLM UI
+      this.refreshLLMList();
+      this.updateDefaultLLMDropdown(prefs.defaultLLM);
+    }
   }
 
   /**
    * Set up event listeners for UI elements
    */
-  private initEventListeners(): void {
+  private initEventListeners(paneId: string): void {
     if (!this.window) return;
     const doc = this.window.document;
     const Z = getZotero();
     if (!Z) return;
 
-    // Indexing mode change
-    const indexingModeMenu = doc.getElementById('zotseek-pref-indexingMode') as any;
-    if (indexingModeMenu) {
-      indexingModeMenu.addEventListener('command', () => {
-        const value = indexingModeMenu.selectedItem?.value;
-        if (value) {
-          Z.Prefs.set('zotseek.indexingMode', value, true);
-          this.logger.info(`Indexing mode changed to: ${value}`);
-          this.loadStatsAndCheckMismatch();
-        }
-      });
-    }
-
-    // Embedding provider change
-    const providerMenu = doc.getElementById('zotseek-pref-embeddingProvider') as any;
-    if (providerMenu) {
-      providerMenu.addEventListener('command', () => {
-        const value = providerMenu.selectedItem?.value;
-        if (value) {
-          Z.Prefs.set('zotseek.embeddingProvider', value, true);
-          this.logger.info(`Embedding provider changed to: ${value}`);
-          this.updateProviderFieldsVisibility(value);
-          this.showEmbeddingWarning();
-        }
-      });
-    }
-
-    // Number inputs
-    const numberInputs = [
-      { id: 'zotseek-pref-maxTokens', pref: 'zotseek.maxTokens' },
-      { id: 'zotseek-pref-maxChunksPerPaper', pref: 'zotseek.maxChunksPerPaper' },
-      { id: 'zotseek-pref-topK', pref: 'zotseek.topK' },
-      { id: 'zotseek-pref-minSimilarity', pref: 'zotseek.minSimilarityPercent' }
-    ];
-
-    for (const { id, pref } of numberInputs) {
-      const input = doc.getElementById(id) as HTMLInputElement;
-      if (input) {
-        input.addEventListener('change', () => {
-          const value = parseInt(input.value, 10);
-          if (!isNaN(value)) {
-            Z.Prefs.set(pref, value, true);
-            this.logger.debug(`${pref} changed to: ${value}`);
+    if (paneId === 'general') {
+      // Indexing mode change
+      const indexingModeMenu = doc.getElementById('zotseek-pref-indexingMode') as any;
+      if (indexingModeMenu) {
+        indexingModeMenu.addEventListener('command', () => {
+          const value = indexingModeMenu.selectedItem?.value;
+          if (value) {
+            Z.Prefs.set('zotseek.indexingMode', value, true);
+            this.logger.info(`Indexing mode changed to: ${value}`);
+            this.loadStatsAndCheckMismatch();
           }
         });
       }
-    }
 
-    // Text/Password inputs
-    const textInputs = [
-      { id: 'zotseek-pref-embeddingModel', pref: 'zotseek.embeddingModel', warn: true },
-      { id: 'zotseek-pref-apiKey', pref: 'zotseek.apiKey', warn: false },
-      { id: 'zotseek-pref-apiEndpoint', pref: 'zotseek.apiEndpoint', warn: true }
-    ];
-
-    for (const { id, pref, warn } of textInputs) {
-      const input = doc.getElementById(id) as HTMLInputElement;
-      if (input) {
-        input.addEventListener('change', () => {
-          const value = input.value.trim();
-          Z.Prefs.set(pref, value, true);
-          this.logger.debug(`${pref} changed`);
-          if (warn) this.showEmbeddingWarning();
+      // Embedding provider change
+      const providerMenu = doc.getElementById('zotseek-pref-embeddingProvider') as any;
+      if (providerMenu) {
+        providerMenu.addEventListener('command', () => {
+          const value = providerMenu.selectedItem?.value;
+          if (value) {
+            Z.Prefs.set('zotseek.embeddingProvider', value, true);
+            this.logger.info(`Embedding provider changed to: ${value}`);
+            this.updateProviderFieldsVisibility(value);
+            this.showEmbeddingWarning();
+          }
         });
+      }
+
+      // Number inputs
+      const numberInputs = [
+        { id: 'zotseek-pref-maxTokens', pref: 'zotseek.maxTokens' },
+        { id: 'zotseek-pref-maxChunksPerPaper', pref: 'zotseek.maxChunksPerPaper' },
+        { id: 'zotseek-pref-topK', pref: 'zotseek.topK' },
+        { id: 'zotseek-pref-minSimilarity', pref: 'zotseek.minSimilarityPercent' }
+      ];
+
+      for (const { id, pref } of numberInputs) {
+        const input = doc.getElementById(id) as HTMLInputElement;
+        if (input) {
+          input.addEventListener('change', () => {
+            const value = parseInt(input.value, 10);
+            if (!isNaN(value)) {
+              Z.Prefs.set(pref, value, true);
+              this.logger.debug(`${pref} changed to: ${value}`);
+            }
+          });
+        }
+      }
+
+      // Text/Password inputs
+      const textInputs = [
+        { id: 'zotseek-pref-embeddingModel', pref: 'zotseek.embeddingModel', warn: true },
+        { id: 'zotseek-pref-apiKey', pref: 'zotseek.apiKey', warn: false },
+        { id: 'zotseek-pref-apiEndpoint', pref: 'zotseek.apiEndpoint', warn: true }
+      ];
+
+      for (const { id, pref, warn } of textInputs) {
+        const input = doc.getElementById(id) as HTMLInputElement;
+        if (input) {
+          input.addEventListener('change', () => {
+            const value = input.value.trim();
+            Z.Prefs.set(pref, value, true);
+            this.logger.debug(`${pref} changed`);
+            if (warn) this.showEmbeddingWarning();
+          });
+        }
+      }
+
+      // Checkbox inputs
+      const excludeBooksCheckbox = doc.getElementById('zotseek-pref-excludeBooks') as any;
+      if (excludeBooksCheckbox) {
+        excludeBooksCheckbox.addEventListener('command', () => {
+          const checked = excludeBooksCheckbox.checked;
+          Z.Prefs.set('zotseek.excludeBooks', checked, true);
+          this.logger.info(`Exclude books changed to: ${checked}`);
+        });
+      }
+
+      // Button event listeners
+      const refreshBtn = doc.getElementById('zotseek-refresh-stats');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('command', () => this.loadStatsAndCheckMismatch());
+      }
+
+      const clearBtn = doc.getElementById('zotseek-clear-index');
+      if (clearBtn) {
+        clearBtn.addEventListener('command', () => this.clearIndex());
+      }
+
+      const rebuildBtn = doc.getElementById('zotseek-rebuild-index');
+      if (rebuildBtn) {
+        rebuildBtn.addEventListener('command', () => this.rebuildIndex());
+      }
+
+      const updateBtn = doc.getElementById('zotseek-update-index');
+      if (updateBtn) {
+        updateBtn.addEventListener('command', () => this.updateIndex());
       }
     }
 
-    // Checkbox inputs
-    const excludeBooksCheckbox = doc.getElementById('zotseek-pref-excludeBooks') as any;
-    if (excludeBooksCheckbox) {
-      excludeBooksCheckbox.addEventListener('command', () => {
-        const checked = excludeBooksCheckbox.checked;
-        Z.Prefs.set('zotseek.excludeBooks', checked, true);
-        this.logger.info(`Exclude books changed to: ${checked}`);
-      });
-    }
+    if (paneId === 'llm-chat') {
+      // LLM Event Listeners
+      const addLLMBtn = doc.getElementById('zotseek-add-llm');
+      if (addLLMBtn) {
+        addLLMBtn.addEventListener('command', () => this.openLLMEditPane(null));
+      }
 
-    // Button event listeners
-    const refreshBtn = doc.getElementById('zotseek-refresh-stats');
-    if (refreshBtn) {
-      refreshBtn.addEventListener('command', () => this.loadStatsAndCheckMismatch());
-    }
+      const saveLLMBtn = doc.getElementById('zotseek-llm-save');
+      if (saveLLMBtn) {
+        saveLLMBtn.addEventListener('command', () => this.saveLLMModel());
+      }
 
-    const clearBtn = doc.getElementById('zotseek-clear-index');
-    if (clearBtn) {
-      clearBtn.addEventListener('command', () => this.clearIndex());
-    }
+      const cancelLLMBtn = doc.getElementById('zotseek-llm-cancel');
+      if (cancelLLMBtn) {
+        cancelLLMBtn.addEventListener('command', () => this.closeLLMEditPane());
+      }
 
-    const rebuildBtn = doc.getElementById('zotseek-rebuild-index');
-    if (rebuildBtn) {
-      rebuildBtn.addEventListener('command', () => this.rebuildIndex());
-    }
+      const deleteLLMBtn = doc.getElementById('zotseek-llm-delete');
+      if (deleteLLMBtn) {
+        deleteLLMBtn.addEventListener('command', () => this.deleteLLMModel());
+      }
 
-    const updateBtn = doc.getElementById('zotseek-update-index');
-    if (updateBtn) {
-      updateBtn.addEventListener('command', () => this.updateIndex());
-    }
+      const discoverLLMBtn = doc.getElementById('zotseek-llm-discover');
+      if (discoverLLMBtn) {
+        discoverLLMBtn.addEventListener('command', () => this.discoverLLMModels());
+      }
 
-    // LLM Event Listeners
-    const addLLMBtn = doc.getElementById('zotseek-add-llm');
-    if (addLLMBtn) {
-      addLLMBtn.addEventListener('command', () => this.openLLMEditPane(null));
-    }
+      const defaultLLMMenu = doc.getElementById('zotseek-pref-defaultLLM') as any;
+      if (defaultLLMMenu) {
+        defaultLLMMenu.addEventListener('command', () => {
+          const value = defaultLLMMenu.selectedItem?.value;
+          if (value !== undefined) {
+            Z.Prefs.set('zotseek.defaultLLM', value, true);
+            this.logger.info(`Default LLM changed to: ${value}`);
+          }
+        });
+      }
 
-    const saveLLMBtn = doc.getElementById('zotseek-llm-save');
-    if (saveLLMBtn) {
-      saveLLMBtn.addEventListener('command', () => this.saveLLMModel());
-    }
-
-    const cancelLLMBtn = doc.getElementById('zotseek-llm-cancel');
-    if (cancelLLMBtn) {
-      cancelLLMBtn.addEventListener('command', () => this.closeLLMEditPane());
-    }
-
-    const deleteLLMBtn = doc.getElementById('zotseek-llm-delete');
-    if (deleteLLMBtn) {
-      deleteLLMBtn.addEventListener('command', () => this.deleteLLMModel());
-    }
-
-    const discoverLLMBtn = doc.getElementById('zotseek-llm-discover');
-    if (discoverLLMBtn) {
-      discoverLLMBtn.addEventListener('command', () => this.discoverLLMModels());
-    }
-
-    const defaultLLMMenu = doc.getElementById('zotseek-pref-defaultLLM') as any;
-    if (defaultLLMMenu) {
-      defaultLLMMenu.addEventListener('command', () => {
-        const value = defaultLLMMenu.selectedItem?.value;
-        if (value !== undefined) {
-          Z.Prefs.set('zotseek.defaultLLM', value, true);
-          this.logger.info(`Default LLM changed to: ${value}`);
-        }
-      });
-    }
-
-    const editProviderMenu = doc.getElementById('zotseek-llm-edit-provider') as any;
-    if (editProviderMenu) {
-      editProviderMenu.addEventListener('command', () => {
-        this.updateLLMEditFieldsVisibility();
-      });
+      const editProviderMenu = doc.getElementById('zotseek-llm-edit-provider') as any;
+      if (editProviderMenu) {
+        editProviderMenu.addEventListener('command', () => {
+          this.updateLLMEditFieldsVisibility();
+        });
+      }
     }
   }
 
@@ -698,9 +708,9 @@ class PreferencesManager {
   /**
    * Clean up when preference pane is closed
    */
-  destroy(): void {
+  destroy(paneId: string): void {
     this.window = null;
-    this.logger.info('Preference pane destroyed');
+    this.logger.info(`Preference pane ${paneId} destroyed`);
   }
 }
 

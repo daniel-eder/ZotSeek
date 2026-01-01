@@ -231,12 +231,12 @@ class ZotSeekPlugin {
   async onPrefsEvent(type: string, data: any): Promise<void> {
     switch (type) {
       case 'load':
-        this.logger.info('Preference pane loaded');
-        await preferencesManager.init(data.window);
+        this.logger.info(`Preference pane loaded: ${data.id}`);
+        await preferencesManager.init(data.window, data.id);
         break;
       case 'unload':
-        this.logger.info('Preference pane unloaded');
-        preferencesManager.destroy();
+        this.logger.info(`Preference pane unloaded: ${data.id}`);
+        preferencesManager.destroy(data.id);
         break;
       default:
         break;
@@ -344,7 +344,7 @@ class ZotSeekPlugin {
   }
 
   /**
-   * Register the preference pane
+   * Register the preference panes
    * Reference: https://www.zotero.org/support/dev/zotero_7_for_developers#preference_panes
    */
   private registerPreferencePane(): void {
@@ -355,15 +355,25 @@ class ZotSeekPlugin {
     }
 
     try {
+      // General Settings
       Z.PreferencePanes.register({
         pluginID: this.info?.id || 'zotseek@zotero.org',
         src: `${this.info?.rootURI || 'chrome://zotseek/'}content/preferences.xhtml`,
         label: 'ZotSeek',
         image: `${this.info?.rootURI || 'chrome://zotseek/'}content/icons/favicon.png`,
       });
-      this.logger.info('Preference pane registered successfully');
+
+      // LLM Chat Settings
+      Z.PreferencePanes.register({
+        pluginID: this.info?.id || 'zotseek@zotero.org',
+        src: `${this.info?.rootURI || 'chrome://zotseek/'}content/llm-preferences.xhtml`,
+        label: 'ZotSeek: LLM Chat',
+        image: `${this.info?.rootURI || 'chrome://zotseek/'}content/icons/favicon.png`,
+      });
+
+      this.logger.info('Preference panes registered successfully');
     } catch (error) {
-      this.logger.error(`Failed to register preference pane: ${error}`);
+      this.logger.error(`Failed to register preference panes: ${error}`);
     }
   }
 

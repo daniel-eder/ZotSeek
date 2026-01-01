@@ -1,5 +1,5 @@
-<vbox id="zotseek-preferences" onload="Zotero.ZotSeek?.hooks.onPrefsEvent('load', {window})"
-  onunload="Zotero.ZotSeek?.hooks.onPrefsEvent('unload', {window})">
+<vbox id="zotseek-preferences" onload="Zotero.ZotSeek?.hooks.onPrefsEvent('load', {window, id: 'general'})"
+  onunload="Zotero.ZotSeek?.hooks.onPrefsEvent('unload', {window, id: 'general'})">
 
   <!-- Index Statistics -->
   <groupbox>
@@ -146,78 +146,6 @@
     </html:div>
   </groupbox>
 
-  <!-- LLM Chat Settings -->
-  <groupbox>
-    <label>
-      <html:h2>LLM Chat</html:h2>
-    </label>
-
-    <vbox id="zotseek-llm-models-container">
-      <!-- Model items will be dynamically inserted here -->
-    </vbox>
-
-    <hbox style="margin-top: 8px;">
-      <button id="zotseek-add-llm" label="Add New Model" />
-    </hbox>
-
-    <separator class="thin" />
-
-    <hbox align="center">
-      <label value="Default Model:" style="min-width: 180px;" />
-      <menulist id="zotseek-pref-defaultLLM" native="true" style="min-width: 200px;">
-        <menupopup id="zotseek-pref-defaultLLM-popup">
-          <menuitem label="None" value="" />
-        </menupopup>
-      </menulist>
-    </hbox>
-
-    <html:div id="zotseek-llm-edit-pane"
-      style="display: none; border-top: 1px solid #ddd; margin-top: 12px; padding-top: 12px;">
-      <hbox align="center">
-        <label value="Provider:" style="min-width: 180px;" />
-        <menulist id="zotseek-llm-edit-provider" native="true" style="min-width: 200px;">
-          <menupopup>
-            <menuitem label="OpenAI" value="openai" />
-            <menuitem label="Anthropic" value="anthropic" />
-            <menuitem label="Google Gemini" value="google" />
-            <menuitem label="Custom / OpenAI-compatible" value="generic" />
-          </menupopup>
-        </menulist>
-      </hbox>
-
-      <hbox align="center">
-        <label value="Label:" style="min-width: 180px;" />
-        <html:input type="text" id="zotseek-llm-edit-label" style="flex: 1; min-width: 200px;"
-          placeholder="e.g. My GPT-4" />
-      </hbox>
-
-      <hbox align="center" id="zotseek-llm-edit-box-endpoint">
-        <label value="API Endpoint:" style="min-width: 180px;" />
-        <html:input type="text" id="zotseek-llm-edit-endpoint" style="flex: 1; min-width: 200px;" />
-      </hbox>
-
-      <hbox align="center" id="zotseek-llm-edit-box-apiKey">
-        <label value="API Key:" style="min-width: 180px;" />
-        <html:input type="password" id="zotseek-llm-edit-apiKey" style="flex: 1; min-width: 200px;" />
-      </hbox>
-
-      <hbox align="center">
-        <label value="Model ID:" style="min-width: 180px;" />
-        <menulist id="zotseek-llm-edit-model" native="true" editable="true" style="flex: 1; min-width: 200px;">
-          <menupopup id="zotseek-llm-edit-model-popup">
-          </menupopup>
-        </menulist>
-        <button id="zotseek-llm-discover" label="Discover" />
-      </hbox>
-
-      <hbox style="margin-top: 8px;">
-        <button id="zotseek-llm-save" label="Save Model" btn-type="primary" />
-        <button id="zotseek-llm-cancel" label="Cancel" />
-        <spacer flex="1" />
-        <button id="zotseek-llm-delete" label="Delete" style="color: red;" />
-      </hbox>
-    </html:div>
-  </groupbox>
 
   <!-- Search Settings -->
   <groupbox>
