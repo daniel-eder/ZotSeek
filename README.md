@@ -267,7 +267,7 @@ Where:
 
 ```bash
 # Clone the repository
-git clone https://github.com/introfini/ZotSeek
+git clone https://github.com/daniel-eder/zotseek
 cd zotseek
 
 # Install dependencies (includes zotero-plugin-toolkit for stable progress windows)

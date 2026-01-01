@@ -4,7 +4,7 @@
   "version": "1.1.0",
   "description": "AI-powered semantic search for your Zotero library. Find similar papers by meaning, not just keywords.",
   "author": "José Fernandes",
-  "homepage_url": "https://github.com/introfini/zotseek",
+  "homepage_url": "https://github.com/daniel-eder/zotseek",
   "icons": {
     "48": "content/icons/favicon@0.5x.png",
     "96": "content/icons/favicon.png"
@@ -12,7 +12,7 @@
   "applications": {
     "zotero": {
       "id": "zotseek@zotero.org",
-      "update_url": "https://raw.githubusercontent.com/introfini/zotseek/main/update.json",
+      "update_url": "https://raw.githubusercontent.com/daniel-eder/zotseek/main/update.json",
       "strict_min_version": "7.999",
       "strict_max_version": "8.*"
     }
