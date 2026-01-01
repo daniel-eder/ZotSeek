@@ -397,7 +397,7 @@ class PreferencesManager {
     const model = this.getInputValue('zotseek-llm-edit-model').trim();
 
     if (!label || !model) {
-      alert('Label and Model ID are required.');
+      if (this.window) this.window.alert('Label and Model ID are required.');
       return;
     }
 
@@ -429,7 +429,7 @@ class PreferencesManager {
 
   private deleteLLMModel(): void {
     if (!this.editingModelId) return;
-    if (!confirm('Are you sure you want to delete this model?')) return;
+    if (this.window && !this.window.confirm('Are you sure you want to delete this model?')) return;
 
     this.currentModels = this.currentModels.filter(m => m.id !== this.editingModelId);
     this.saveModelsToPrefs();
@@ -457,7 +457,7 @@ class PreferencesManager {
     const provider = (this.window?.document.getElementById('zotseek-llm-edit-provider') as any).selectedItem?.value;
 
     if (!endpoint) {
-      alert('API Endpoint is required for discovery.');
+      if (this.window) this.window.alert('API Endpoint is required for discovery.');
       return;
     }
 
@@ -501,14 +501,14 @@ class PreferencesManager {
             }
           });
 
-          alert(`Found ${models.length} models.`);
+          if (this.window) this.window.alert(`Found ${models.length} models.`);
         }
       } else {
-        alert('Could not find models in response.');
+        if (this.window) this.window.alert('Could not find models in response.');
       }
     } catch (e) {
       this.logger.error(`Discovery failed: ${e}`);
-      alert(`Discovery failed: ${e}`);
+      if (this.window) this.window.alert(`Discovery failed: ${e}`);
     }
   }
 
