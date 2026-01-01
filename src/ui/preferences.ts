@@ -8,6 +8,8 @@ import { getZotero } from '../utils/zotero-helper';
 class PreferencesManager {
   private window: Window | null = null;
   private logger: any;
+  private currentModels: any[] = [];
+  private editingModelId: string | null = null;
 
   constructor() {
     const Z = getZotero();
@@ -62,7 +64,15 @@ class PreferencesManager {
       embeddingModel: Z.Prefs.get('zotseek.embeddingModel', true) || '',
       apiKey: Z.Prefs.get('zotseek.apiKey', true) || '',
       apiEndpoint: Z.Prefs.get('zotseek.apiEndpoint', true) || '',
+      llmModels: Z.Prefs.get('zotseek.llmModels', true) || '[]',
+      defaultLLM: Z.Prefs.get('zotseek.defaultLLM', true) || '',
     };
+
+    try {
+      this.currentModels = JSON.parse(prefs.llmModels);
+    } catch (e) {
+      this.currentModels = [];
+    }
 
     this.logger.debug(`Loaded preferences: ${JSON.stringify(prefs)}`);
 
@@ -81,6 +91,10 @@ class PreferencesManager {
 
     // Set checkbox values
     this.setCheckboxValue('zotseek-pref-excludeBooks', prefs.excludeBooks);
+
+    // Update LLM UI
+    this.refreshLLMList();
+    this.updateDefaultLLMDropdown(prefs.defaultLLM);
 
     // Update visibility of provider fields
     this.updateProviderFieldsVisibility(prefs.embeddingProvider);
@@ -192,6 +206,300 @@ class PreferencesManager {
     if (updateBtn) {
       updateBtn.addEventListener('command', () => this.updateIndex());
     }
+
+    // LLM Event Listeners
+    const addLLMBtn = doc.getElementById('zotseek-add-llm');
+    if (addLLMBtn) {
+      addLLMBtn.addEventListener('command', () => this.openLLMEditPane(null));
+    }
+
+    const saveLLMBtn = doc.getElementById('zotseek-llm-save');
+    if (saveLLMBtn) {
+      saveLLMBtn.addEventListener('command', () => this.saveLLMModel());
+    }
+
+    const cancelLLMBtn = doc.getElementById('zotseek-llm-cancel');
+    if (cancelLLMBtn) {
+      cancelLLMBtn.addEventListener('command', () => this.closeLLMEditPane());
+    }
+
+    const deleteLLMBtn = doc.getElementById('zotseek-llm-delete');
+    if (deleteLLMBtn) {
+      deleteLLMBtn.addEventListener('command', () => this.deleteLLMModel());
+    }
+
+    const discoverLLMBtn = doc.getElementById('zotseek-llm-discover');
+    if (discoverLLMBtn) {
+      discoverLLMBtn.addEventListener('command', () => this.discoverLLMModels());
+    }
+
+    const defaultLLMMenu = doc.getElementById('zotseek-pref-defaultLLM') as any;
+    if (defaultLLMMenu) {
+      defaultLLMMenu.addEventListener('command', () => {
+        const value = defaultLLMMenu.selectedItem?.value;
+        if (value !== undefined) {
+          Z.Prefs.set('zotseek.defaultLLM', value, true);
+          this.logger.info(`Default LLM changed to: ${value}`);
+        }
+      });
+    }
+
+    const editProviderMenu = doc.getElementById('zotseek-llm-edit-provider') as any;
+    if (editProviderMenu) {
+      editProviderMenu.addEventListener('command', () => {
+        this.updateLLMEditFieldsVisibility();
+      });
+    }
+  }
+
+  /**
+   * LLM Management Methods
+   */
+
+  private refreshLLMList(): void {
+    if (!this.window) return;
+    const container = this.window.document.getElementById('zotseek-llm-models-container');
+    if (!container) return;
+
+    // Clear container
+    while (container.firstChild) {
+      container.removeChild(container.firstChild);
+    }
+
+    if (this.currentModels.length === 0) {
+      const emptyLabel = this.window.document.createElementNS('http://www.w3.org/1999/xhtml', 'span');
+      emptyLabel.textContent = 'No LLM models configured.';
+      emptyLabel.style.color = '#666';
+      emptyLabel.style.fontStyle = 'italic';
+      container.appendChild(emptyLabel);
+      return;
+    }
+
+    this.currentModels.forEach(model => {
+      const row = this.window!.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'hbox') as any;
+      row.setAttribute('align', 'center');
+      row.style.background = '#fff';
+      row.style.border = '1px solid #ddd';
+      row.style.borderRadius = '4px';
+      row.style.padding = '4px 8px';
+      row.style.marginBottom = '4px';
+
+      const label = this.window!.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'label');
+      label.setAttribute('value', `${model.label} (${model.provider})`);
+      label.setAttribute('flex', '1');
+      row.appendChild(label);
+
+      const editBtn = this.window!.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'button');
+      editBtn.setAttribute('label', 'Edit');
+      editBtn.addEventListener('command', () => this.openLLMEditPane(model.id));
+      row.appendChild(editBtn);
+
+      container.appendChild(row);
+    });
+  }
+
+  private updateDefaultLLMDropdown(currentValue: string): void {
+    if (!this.window) return;
+    const popup = this.window.document.getElementById('zotseek-pref-defaultLLM-popup');
+    if (!popup) return;
+
+    // Clear except first
+    while (popup.children.length > 1) {
+      popup.removeChild(popup.lastChild!);
+    }
+
+    this.currentModels.forEach(model => {
+      const item = this.window!.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'menuitem');
+      item.setAttribute('label', model.label);
+      item.setAttribute('value', model.id);
+      popup.appendChild(item);
+    });
+
+    this.setMenulistValue('zotseek-pref-defaultLLM', currentValue);
+  }
+
+  private openLLMEditPane(modelId: string | null): void {
+    if (!this.window) return;
+    const pane = this.window.document.getElementById('zotseek-llm-edit-pane');
+    if (!pane) return;
+
+    this.editingModelId = modelId;
+    pane.style.display = 'block';
+
+    const model = modelId ? this.currentModels.find(m => m.id === modelId) : null;
+
+    if (model) {
+      this.setMenulistValue('zotseek-llm-edit-provider', model.provider);
+      this.setInputValue('zotseek-llm-edit-label', model.label);
+      this.setInputValue('zotseek-llm-edit-endpoint', model.endpoint || '');
+      this.setInputValue('zotseek-llm-edit-apiKey', model.apiKey || '');
+      this.setInputValue('zotseek-llm-edit-model', model.model || '');
+      this.window.document.getElementById('zotseek-llm-delete')!.style.display = 'block';
+    } else {
+      this.setMenulistValue('zotseek-llm-edit-provider', 'openai');
+      this.setInputValue('zotseek-llm-edit-label', '');
+      this.setInputValue('zotseek-llm-edit-endpoint', '');
+      this.setInputValue('zotseek-llm-edit-apiKey', '');
+      this.setInputValue('zotseek-llm-edit-model', '');
+      this.window.document.getElementById('zotseek-llm-delete')!.style.display = 'none';
+    }
+
+    this.updateLLMEditFieldsVisibility();
+    pane.scrollIntoView();
+  }
+
+  private closeLLMEditPane(): void {
+    if (!this.window) return;
+    const pane = this.window.document.getElementById('zotseek-llm-edit-pane');
+    if (pane) pane.style.display = 'none';
+    this.editingModelId = null;
+  }
+
+  private updateLLMEditFieldsVisibility(): void {
+    if (!this.window) return;
+    const provider = (this.window.document.getElementById('zotseek-llm-edit-provider') as any).selectedItem?.value;
+
+    const show = (id: string, isVisible: boolean) => {
+      const el = this.window!.document.getElementById(id);
+      if (el) (el as HTMLElement).style.display = isVisible ? 'flex' : 'none';
+    };
+
+    show('zotseek-llm-edit-box-endpoint', provider === 'generic' || provider === 'openai' || provider === 'google');
+    // Pre-fill endpoints for well-known
+    if (provider === 'openai' && !this.getInputValue('zotseek-llm-edit-endpoint')) {
+      this.setInputValue('zotseek-llm-edit-endpoint', 'https://api.openai.com/v1');
+    } else if (provider === 'google' && !this.getInputValue('zotseek-llm-edit-endpoint')) {
+      this.setInputValue('zotseek-llm-edit-endpoint', 'https://generativelanguage.googleapis.com/v1beta/openai');
+    } else if (provider === 'anthropic' && !this.getInputValue('zotseek-llm-edit-endpoint')) {
+      this.setInputValue('zotseek-llm-edit-endpoint', 'https://api.anthropic.com/v1');
+    }
+  }
+
+  private getInputValue(id: string): string {
+    return (this.window?.document.getElementById(id) as HTMLInputElement)?.value || '';
+  }
+
+  private async saveLLMModel(): Promise<void> {
+    const provider = (this.window?.document.getElementById('zotseek-llm-edit-provider') as any).selectedItem?.value;
+    const label = this.getInputValue('zotseek-llm-edit-label').trim();
+    const endpoint = this.getInputValue('zotseek-llm-edit-endpoint').trim();
+    const apiKey = this.getInputValue('zotseek-llm-edit-apiKey').trim();
+    const model = this.getInputValue('zotseek-llm-edit-model').trim();
+
+    if (!label || !model) {
+      alert('Label and Model ID are required.');
+      return;
+    }
+
+    const modelObj = {
+      id: this.editingModelId || `llm-${Date.now()}`,
+      provider,
+      label,
+      endpoint,
+      apiKey,
+      model
+    };
+
+    if (this.editingModelId) {
+      const index = this.currentModels.findIndex(m => m.id === this.editingModelId);
+      if (index !== -1) this.currentModels[index] = modelObj;
+    } else {
+      this.currentModels.push(modelObj);
+    }
+
+    this.saveModelsToPrefs();
+    this.refreshLLMList();
+
+    const Z = getZotero();
+    const currentDefault = Z.Prefs.get('zotseek.defaultLLM', true);
+    this.updateDefaultLLMDropdown(currentDefault);
+
+    this.closeLLMEditPane();
+  }
+
+  private deleteLLMModel(): void {
+    if (!this.editingModelId) return;
+    if (!confirm('Are you sure you want to delete this model?')) return;
+
+    this.currentModels = this.currentModels.filter(m => m.id !== this.editingModelId);
+    this.saveModelsToPrefs();
+    this.refreshLLMList();
+
+    const Z = getZotero();
+    let currentDefault = Z.Prefs.get('zotseek.defaultLLM', true);
+    if (currentDefault === this.editingModelId) {
+      Z.Prefs.set('zotseek.defaultLLM', '', true);
+      currentDefault = '';
+    }
+    this.updateDefaultLLMDropdown(currentDefault);
+
+    this.closeLLMEditPane();
+  }
+
+  private saveModelsToPrefs(): void {
+    const Z = getZotero();
+    Z.Prefs.set('zotseek.llmModels', JSON.stringify(this.currentModels), true);
+  }
+
+  private async discoverLLMModels(): Promise<void> {
+    const endpoint = this.getInputValue('zotseek-llm-edit-endpoint').trim();
+    const apiKey = this.getInputValue('zotseek-llm-edit-apiKey').trim();
+    const provider = (this.window?.document.getElementById('zotseek-llm-edit-provider') as any).selectedItem?.value;
+
+    if (!endpoint) {
+      alert('API Endpoint is required for discovery.');
+      return;
+    }
+
+    try {
+      this.logger.info(`Discovering models at ${endpoint}`);
+      const url = endpoint.endsWith('/') ? `${endpoint}models` : `${endpoint}/models`;
+
+      const headers: any = {
+        'Accept': 'application/json'
+      };
+
+      if (apiKey) {
+        if (provider === 'anthropic') {
+          headers['x-api-key'] = apiKey;
+          headers['anthropic-version'] = '2023-06-01';
+        } else {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+      }
+
+      const response = await fetch(url, { headers });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const models = data.data || data.models || [];
+
+      if (Array.isArray(models)) {
+        const popup = this.window!.document.getElementById('zotseek-llm-edit-model-popup');
+        if (popup) {
+          while (popup.firstChild) popup.removeChild(popup.firstChild);
+
+          models.forEach((m: any) => {
+            const id = m.id || m.name || m;
+            if (typeof id === 'string') {
+              const item = this.window!.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'menuitem');
+              item.setAttribute('label', id);
+              item.setAttribute('value', id);
+              popup.appendChild(item);
+            }
+          });
+
+          alert(`Found ${models.length} models.`);
+        }
+      } else {
+        alert('Could not find models in response.');
+      }
+    } catch (e) {
+      this.logger.error(`Discovery failed: ${e}`);
+      alert(`Discovery failed: ${e}`);
+    }
   }
 
   /**
@@ -246,10 +554,11 @@ class PreferencesManager {
 
         // Check for mismatch
         const currentMode = Z.Prefs.get('zotseek.indexingMode', true) || 'abstract';
-        const currentModeLabel = {
+        const modeMap: Record<string, string> = {
           'abstract': 'Abstract Only',
           'full': 'Full Paper'
-        }[currentMode] || currentMode;
+        };
+        const currentModeLabel = modeMap[currentMode] || currentMode;
 
         if (warningBox) {
           if (stats.indexedWithMode !== currentModeLabel && stats.indexedPapers > 0) {
@@ -364,7 +673,7 @@ class PreferencesManager {
 
     const show = (id: string, isVisible: boolean) => {
       const el = doc.getElementById(id);
-      if (el) el.style.display = isVisible ? 'flex' : 'none';
+      if (el) (el as HTMLElement).style.display = isVisible ? 'flex' : 'none';
     };
 
     // Model field is shown for all except local (which is fixed)
