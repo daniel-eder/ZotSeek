@@ -129,9 +129,24 @@ export class ChatDialog {
         this.addMessage('user', content);
         input.value = '';
 
+        // Prepare messages for LLM
+        const Z = getZotero();
+        const systemPrompt = Z.Prefs.get('zotseek.llmSystemPrompt', true) || '';
+
+        const messagesToSend = [...this.currentMessages];
+        if (systemPrompt) {
+            // Check if there's already a system message and replace it if so, otherwise unshift
+            const existingSystemIndex = messagesToSend.findIndex(m => m.role === 'system');
+            if (existingSystemIndex !== -1) {
+                messagesToSend[existingSystemIndex] = { role: 'system', content: systemPrompt };
+            } else {
+                messagesToSend.unshift({ role: 'system', content: systemPrompt });
+            }
+        }
+
         try {
             this.addMessage('system', 'Thinking...');
-            const response = await llmClient.chat(config, this.currentMessages);
+            const response = await llmClient.chat(config, messagesToSend);
             this.removeLastMessage(); // Remove "Thinking..."
             this.addMessage('assistant', response);
         } catch (e) {

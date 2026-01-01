@@ -26,6 +26,15 @@
             </menulist>
         </hbox>
 
+        <vbox style="margin-top: 12px;">
+            <label value="System Prompt (Anti-hallucination):" style="font-weight: bold; margin-bottom: 4px;" />
+            <html:textarea id="zotseek-pref-llmSystemPrompt" rows="4"
+                style="flex: 1; min-width: 100%; font-family: inherit; font-size: 13px; padding: 5px;"
+                placeholder="Instructions for the AI..." />
+            <label value="This prompt is sent with every message to guide the AI's behavior."
+                style="color: #666; font-size: 11px; margin-top: 2px;" />
+        </vbox>
+
         <html:div id="zotseek-llm-edit-pane"
             style="display: none; border-top: 1px solid #ddd; margin-top: 12px; padding-top: 12px;">
             <hbox align="center">

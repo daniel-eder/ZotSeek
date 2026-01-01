@@ -33,3 +33,7 @@ pref("extensions.zotero.zotseek.hybridSearch.semanticWeightPercent", 50);
 pref("extensions.zotero.zotseek.hybridSearch.rrfK", 60);
 // Auto-adjust weights based on query analysis
 pref("extensions.zotero.zotseek.hybridSearch.autoAdjustWeights", true);
+// LLM Settings
+pref("extensions.zotero.zotseek.llmModels", "[]");
+pref("extensions.zotero.zotseek.defaultLLM", "");
+pref("extensions.zotero.zotseek.llmSystemPrompt", "You are ZotSeek, an AI assistant for Zotero. Your goal is to help users interact with their research library.\n\nGuidelines:\n- Only use information from the provided Zotero items, their metadata, or their content.\n- If you are unsure or the information is not present in the library, state that you don't know rather than hallucinating.\n- Always assume that any question the user asks should only be answered using Zotero items or their metadata.\n- Be concise and professional.");

@@ -68,6 +68,7 @@ class PreferencesManager {
       apiEndpoint: Z.Prefs.get('zotseek.apiEndpoint', true) || '',
       llmModels: Z.Prefs.get('zotseek.llmModels', true) || '[]',
       defaultLLM: Z.Prefs.get('zotseek.defaultLLM', true) || '',
+      llmSystemPrompt: Z.Prefs.get('zotseek.llmSystemPrompt', true) || '',
     };
 
     try {
@@ -103,6 +104,7 @@ class PreferencesManager {
       // Update LLM UI
       this.refreshLLMList();
       this.updateDefaultLLMDropdown(prefs.defaultLLM);
+      this.setInputValue('zotseek-pref-llmSystemPrompt', prefs.llmSystemPrompt);
     }
   }
 
@@ -250,6 +252,15 @@ class PreferencesManager {
             Z.Prefs.set('zotseek.defaultLLM', value, true);
             this.logger.info(`Default LLM changed to: ${value}`);
           }
+        });
+      }
+
+      const llmSystemPromptInput = doc.getElementById('zotseek-pref-llmSystemPrompt') as any;
+      if (llmSystemPromptInput) {
+        llmSystemPromptInput.addEventListener('change', () => {
+          const value = llmSystemPromptInput.value.trim();
+          Z.Prefs.set('zotseek.llmSystemPrompt', value, true);
+          this.logger.info('LLM System Prompt updated');
         });
       }
 
