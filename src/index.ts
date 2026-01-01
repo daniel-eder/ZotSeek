@@ -335,7 +335,7 @@ class ZotSeekPlugin {
 
       const indexCollectionsItem = doc.createXULElement('menuitem');
       indexCollectionsItem.id = 'zotseek-index-collections';
-      indexCollectionsItem.setAttribute('label', 'Index Selected Collection(s)');
+      indexCollectionsItem.setAttribute('label', 'Index Collection for ZotSeek');
       indexCollectionsItem.addEventListener('command', () => this.onIndexCollections());
 
       collectionMenu.appendChild(colSeparator);
@@ -704,9 +704,39 @@ class ZotSeekPlugin {
     const ZoteroPane = Z.getActiveZoteroPane();
     if (!ZoteroPane) return;
 
-    const collections = ZoteroPane.getSelectedCollections();
-    if (!collections || collections.length === 0) {
-      this.showAlert('Please select one or more collections to index.');
+    let collections: any[] = [];
+
+    // 1. Try getSelectedCollection() - most reliable for single selection in Zotero
+    const singleCollection = ZoteroPane.getSelectedCollection();
+    if (singleCollection) {
+      this.logger.debug(`onIndexCollections: found single selection: ${singleCollection.name}`);
+      collections.push(singleCollection);
+    }
+
+    // 2. Try multiple selection fallback (for Zotero 7/8)
+    // This is useful if Zotero ever allows multi-select or if getSelectedCollection fails
+    if (collections.length === 0 && ZoteroPane.collectionsView?.selection) {
+      const selection = ZoteroPane.collectionsView.selection;
+      if (typeof selection.getSelected === 'function') {
+        const selectedIndices = selection.getSelected();
+        if (selectedIndices && selectedIndices.length > 0) {
+          for (const index of selectedIndices) {
+            const row = ZoteroPane.collectionsView.getRow(index);
+            const ref = row?.ref;
+            if (ref && (ref instanceof Z.Collection || ref.isCollection?.())) {
+              if (!collections.includes(ref)) {
+                collections.push(ref);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    this.logger.debug(`onIndexCollections: found ${collections.length} collection(s)`);
+
+    if (collections.length === 0) {
+      this.showAlert('Please select a collection to index.\n\n(Click on a collection in the left sidebar)');
       return;
     }
 
