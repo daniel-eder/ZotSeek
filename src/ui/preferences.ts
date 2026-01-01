@@ -374,13 +374,14 @@ class PreferencesManager {
       if (el) (el as HTMLElement).style.display = isVisible ? 'flex' : 'none';
     };
 
-    show('zotseek-llm-edit-box-endpoint', provider === 'generic' || provider === 'openai' || provider === 'google');
+    show('zotseek-llm-edit-box-endpoint', provider === 'generic');
+
     // Pre-fill endpoints for well-known
-    if (provider === 'openai' && !this.getInputValue('zotseek-llm-edit-endpoint')) {
+    if (provider === 'openai') {
       this.setInputValue('zotseek-llm-edit-endpoint', 'https://api.openai.com/v1');
-    } else if (provider === 'google' && !this.getInputValue('zotseek-llm-edit-endpoint')) {
+    } else if (provider === 'google') {
       this.setInputValue('zotseek-llm-edit-endpoint', 'https://generativelanguage.googleapis.com/v1beta/openai');
-    } else if (provider === 'anthropic' && !this.getInputValue('zotseek-llm-edit-endpoint')) {
+    } else if (provider === 'anthropic') {
       this.setInputValue('zotseek-llm-edit-endpoint', 'https://api.anthropic.com/v1');
     }
   }
