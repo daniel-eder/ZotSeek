@@ -273,60 +273,74 @@ class ZotSeekPlugin {
 
     const doc = win.document;
     const itemMenu = doc.getElementById('zotero-itemmenu');
+    const collectionMenu = doc.getElementById('zotero-collectionmenu');
 
-    if (!itemMenu) {
-      this.logger.warn('Could not find zotero-itemmenu');
+    if (!itemMenu && !collectionMenu) {
+      this.logger.warn('Could not find zotero-itemmenu or zotero-collectionmenu');
       return;
     }
 
-    // Check if already registered
-    if (doc.getElementById('zotseek-find-similar')) {
-      this.logger.debug('Context menu already registered');
-      return;
+    // --- Item Menu Additions ---
+    if (itemMenu && !doc.getElementById('zotseek-find-similar')) {
+      this.logger.info('Registering item context menu');
+
+      // Create separator for item menu
+      const itemSeparator = doc.createXULElement('menuseparator');
+      itemSeparator.id = 'zotseek-item-separator';
+
+      // Create "Find Similar Documents" menu item
+      const findSimilarItem = doc.createXULElement('menuitem');
+      findSimilarItem.id = 'zotseek-find-similar';
+      findSimilarItem.setAttribute('label', 'Find Similar Documents');
+      findSimilarItem.addEventListener('command', () => this.onFindSimilar());
+
+      // Create "Open ZotSeek" menu item for general search
+      const openSearchItem = doc.createXULElement('menuitem');
+      openSearchItem.id = 'zotseek-open-dialog';
+      openSearchItem.setAttribute('label', 'Open ZotSeek...');
+      openSearchItem.addEventListener('command', () => searchDialogWithVTable.open());
+
+      // Create "Index Selected" menu item
+      const indexSelectedItem = doc.createXULElement('menuitem');
+      indexSelectedItem.id = 'zotseek-index-selected';
+      indexSelectedItem.setAttribute('label', 'Index Selected for ZotSeek');
+      indexSelectedItem.addEventListener('command', () => this.onIndexSelected());
+
+      // Create "Index Collection" menu item for ITEM menu (remains for compatibility)
+      const indexCollectionItem = doc.createXULElement('menuitem');
+      indexCollectionItem.id = 'zotseek-index-collection';
+      indexCollectionItem.setAttribute('label', 'Index Current Collection');
+      indexCollectionItem.addEventListener('command', () => this.onIndexCollection());
+
+      // Create "Index Library" menu item
+      const indexLibraryItem = doc.createXULElement('menuitem');
+      indexLibraryItem.id = 'zotseek-index-library';
+      indexLibraryItem.setAttribute('label', 'Update Library Index');
+      indexLibraryItem.addEventListener('command', () => this.onIndexLibrary());
+
+      itemMenu.appendChild(itemSeparator);
+      itemMenu.appendChild(findSimilarItem);
+      itemMenu.appendChild(openSearchItem);
+      itemMenu.appendChild(indexSelectedItem);
+      itemMenu.appendChild(indexCollectionItem);
+      itemMenu.appendChild(indexLibraryItem);
     }
 
-    // Create separator
-    const separator = doc.createXULElement('menuseparator');
-    separator.id = 'zotseek-separator';
+    // --- Collection Menu Additions ---
+    if (collectionMenu && !doc.getElementById('zotseek-index-collections')) {
+      this.logger.info('Registering collection context menu');
 
-    // Create "Find Similar Documents" menu item
-    const findSimilarItem = doc.createXULElement('menuitem');
-    findSimilarItem.id = 'zotseek-find-similar';
-    findSimilarItem.setAttribute('label', 'Find Similar Documents');
-    findSimilarItem.addEventListener('command', () => this.onFindSimilar());
+      const colSeparator = doc.createXULElement('menuseparator');
+      colSeparator.id = 'zotseek-col-separator';
 
-    // Create "Open ZotSeek" menu item for general search
-    const openSearchItem = doc.createXULElement('menuitem');
-    openSearchItem.id = 'zotseek-open-dialog';
-    openSearchItem.setAttribute('label', 'Open ZotSeek...');
-    openSearchItem.addEventListener('command', () => searchDialogWithVTable.open());
+      const indexCollectionsItem = doc.createXULElement('menuitem');
+      indexCollectionsItem.id = 'zotseek-index-collections';
+      indexCollectionsItem.setAttribute('label', 'Index Collection for ZotSeek');
+      indexCollectionsItem.addEventListener('command', () => this.onIndexCollections());
 
-    // Create "Index Selected" menu item
-    const indexSelectedItem = doc.createXULElement('menuitem');
-    indexSelectedItem.id = 'zotseek-index-selected';
-    indexSelectedItem.setAttribute('label', 'Index Selected for ZotSeek');
-    indexSelectedItem.addEventListener('command', () => this.onIndexSelected());
-
-    // Create "Index Collection" menu item
-    const indexCollectionItem = doc.createXULElement('menuitem');
-    indexCollectionItem.id = 'zotseek-index-collection';
-    indexCollectionItem.setAttribute('label', 'Index Current Collection');
-    indexCollectionItem.addEventListener('command', () => this.onIndexCollection());
-
-    // Create "Index Library" menu item
-    const indexLibraryItem = doc.createXULElement('menuitem');
-    indexLibraryItem.id = 'zotseek-index-library';
-    indexLibraryItem.setAttribute('label', 'Update Library Index');
-    indexLibraryItem.addEventListener('command', () => this.onIndexLibrary());
-
-    itemMenu.appendChild(separator);
-    itemMenu.appendChild(findSimilarItem);
-    itemMenu.appendChild(openSearchItem);
-    itemMenu.appendChild(indexSelectedItem);
-    itemMenu.appendChild(indexCollectionItem);
-    itemMenu.appendChild(indexLibraryItem);
-
-    this.logger.info('Context menu registered successfully');
+      collectionMenu.appendChild(colSeparator);
+      collectionMenu.appendChild(indexCollectionsItem);
+    }
   }
 
   /**
@@ -457,7 +471,7 @@ class ZotSeekPlugin {
       if (el) el.textContent = value;
     };
 
-      setText('zotseek-stat-papers', 'Loading...');
+    setText('zotseek-stat-papers', 'Loading...');
 
     try {
       const stats = await this.getStats();
@@ -673,6 +687,78 @@ class ZotSeekPlugin {
 
     this.logger.info(`Indexing collection "${collectionName}" (${items.length} items)`);
     await this.indexItems(items);
+  }
+
+  /**
+   * Index multiple selected collections
+   */
+  private async onIndexCollections(): Promise<void> {
+    if (this.indexing) {
+      this.showAlert('Indexing already in progress...');
+      return;
+    }
+
+    const Z = getZotero();
+    if (!Z) return;
+
+    const ZoteroPane = Z.getActiveZoteroPane();
+    if (!ZoteroPane) return;
+
+    let collections: any[] = [];
+
+    // 1. Try getSelectedCollection() - most reliable for single selection in Zotero
+    const singleCollection = ZoteroPane.getSelectedCollection();
+    if (singleCollection) {
+      this.logger.debug(`onIndexCollections: found single selection: ${singleCollection.name}`);
+      collections.push(singleCollection);
+    }
+
+    // 2. Try multiple selection fallback (for Zotero 7/8)
+    // This is useful if Zotero ever allows multi-select or if getSelectedCollection fails
+    if (collections.length === 0 && ZoteroPane.collectionsView?.selection) {
+      const selection = ZoteroPane.collectionsView.selection;
+      if (typeof selection.getSelected === 'function') {
+        const selectedIndices = selection.getSelected();
+        if (selectedIndices && selectedIndices.length > 0) {
+          for (const index of selectedIndices) {
+            const row = ZoteroPane.collectionsView.getRow(index);
+            const ref = row?.ref;
+            if (ref && (ref instanceof Z.Collection || ref.isCollection?.())) {
+              if (!collections.includes(ref)) {
+                collections.push(ref);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    this.logger.debug(`onIndexCollections: found ${collections.length} collection(s)`);
+
+    if (collections.length === 0) {
+      this.showAlert('Please select a collection to index.\n\n(Click on a collection in the left sidebar)');
+      return;
+    }
+
+    this.logger.info(`Indexing ${collections.length} selected collections`);
+
+    const allItemIds = new Set<number>();
+    for (const collection of collections) {
+      // Get items from this collection recursively
+      const items = await this.zoteroAPI.getCollectionItems(collection.id);
+      for (const item of items) {
+        allItemIds.add(item.id);
+      }
+    }
+
+    if (allItemIds.size === 0) {
+      this.showAlert('The selected collections contain no regular items to index.');
+      return;
+    }
+
+    this.logger.info(`Found ${allItemIds.size} unique items across ${collections.length} collections`);
+    const itemsToIndex = await this.zoteroAPI.getItems(Array.from(allItemIds));
+    await this.indexItems(itemsToIndex);
   }
 
   /**
@@ -1039,8 +1125,8 @@ class ZotSeekPlugin {
   }
 
   /**
-   * Remove XUL-injected menu elements (fallback cleanup)
-   */
+ * Remove XUL-injected menu elements (fallback cleanup)
+ */
   private removeXULElements(window: Window): void {
     const doc = window.document;
     const ids = [
@@ -1049,7 +1135,10 @@ class ZotSeekPlugin {
       'zotseek-index-selected',
       'zotseek-index-collection',
       'zotseek-index-library',
-      'zotseek-separator',
+      'zotseek-item-separator',
+      'zotseek-col-separator',
+      'zotseek-index-collections',
+      'zotseek-separator', // Keep old id for legacy cleanup
     ];
     for (const id of ids) {
       const el = doc.getElementById(id);
