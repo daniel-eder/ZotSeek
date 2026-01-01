@@ -5,6 +5,7 @@
 
 import { Logger } from '../utils/logger';
 import { LLMConfig, LLMMessage, llmClient } from '../core/llm-client';
+import { getZotero } from '../utils/zotero-helper';
 
 declare const Zotero: any;
 declare const Services: any;
@@ -61,9 +62,10 @@ export class ChatDialog {
 
     private loadModels(): void {
         try {
-            const modelsStr = Zotero.Prefs.get('zotseek.llmModels', true) || '[]';
+            const Z = getZotero();
+            const modelsStr = Z.Prefs.get('zotseek.llmModels', true) || '[]';
             this.llmModels = JSON.parse(modelsStr);
-            this.selectedModelId = Zotero.Prefs.get('zotseek.defaultLLM', true) || (this.llmModels[0]?.id || '');
+            this.selectedModelId = Z.Prefs.get('zotseek.defaultLLM', true) || (this.llmModels[0]?.id || '');
         } catch (e) {
             this.logger.error(`Failed to load models: ${e}`);
         }
