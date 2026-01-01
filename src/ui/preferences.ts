@@ -28,13 +28,13 @@ class PreferencesManager {
     try {
       // Initialize preferences
       this.initPreferences();
-      
+
       // Set up event listeners
       this.initEventListeners();
-      
+
       // Auto-load stats
       await this.loadStatsAndCheckMismatch();
-      
+
       this.logger.info('Preference pane initialized successfully');
     } catch (error) {
       this.logger.error(`Failed to initialize preferences: ${error}`);
@@ -58,21 +58,32 @@ class PreferencesManager {
       topK: Z.Prefs.get('zotseek.topK', true) ?? 20,
       minSimilarity: Z.Prefs.get('zotseek.minSimilarityPercent', true) ?? 30,
       excludeBooks: Z.Prefs.get('zotseek.excludeBooks', true) ?? true,
+      embeddingProvider: Z.Prefs.get('zotseek.embeddingProvider', true) || 'local',
+      embeddingModel: Z.Prefs.get('zotseek.embeddingModel', true) || '',
+      apiKey: Z.Prefs.get('zotseek.apiKey', true) || '',
+      apiEndpoint: Z.Prefs.get('zotseek.apiEndpoint', true) || '',
     };
 
     this.logger.debug(`Loaded preferences: ${JSON.stringify(prefs)}`);
 
     // Set menulist values
     this.setMenulistValue('zotseek-pref-indexingMode', prefs.indexingMode);
+    this.setMenulistValue('zotseek-pref-embeddingProvider', prefs.embeddingProvider);
 
     // Set input values
     this.setInputValue('zotseek-pref-maxTokens', prefs.maxTokens);
     this.setInputValue('zotseek-pref-maxChunksPerPaper', prefs.maxChunksPerPaper);
     this.setInputValue('zotseek-pref-topK', prefs.topK);
     this.setInputValue('zotseek-pref-minSimilarity', prefs.minSimilarity);
+    this.setInputValue('zotseek-pref-embeddingModel', prefs.embeddingModel);
+    this.setInputValue('zotseek-pref-apiKey', prefs.apiKey);
+    this.setInputValue('zotseek-pref-apiEndpoint', prefs.apiEndpoint);
 
     // Set checkbox values
     this.setCheckboxValue('zotseek-pref-excludeBooks', prefs.excludeBooks);
+
+    // Update visibility of provider fields
+    this.updateProviderFieldsVisibility(prefs.embeddingProvider);
   }
 
   /**
@@ -92,8 +103,21 @@ class PreferencesManager {
         if (value) {
           Z.Prefs.set('zotseek.indexingMode', value, true);
           this.logger.info(`Indexing mode changed to: ${value}`);
-          // Check for mismatch after changing
           this.loadStatsAndCheckMismatch();
+        }
+      });
+    }
+
+    // Embedding provider change
+    const providerMenu = doc.getElementById('zotseek-pref-embeddingProvider') as any;
+    if (providerMenu) {
+      providerMenu.addEventListener('command', () => {
+        const value = providerMenu.selectedItem?.value;
+        if (value) {
+          Z.Prefs.set('zotseek.embeddingProvider', value, true);
+          this.logger.info(`Embedding provider changed to: ${value}`);
+          this.updateProviderFieldsVisibility(value);
+          this.showEmbeddingWarning();
         }
       });
     }
@@ -115,6 +139,25 @@ class PreferencesManager {
             Z.Prefs.set(pref, value, true);
             this.logger.debug(`${pref} changed to: ${value}`);
           }
+        });
+      }
+    }
+
+    // Text/Password inputs
+    const textInputs = [
+      { id: 'zotseek-pref-embeddingModel', pref: 'zotseek.embeddingModel', warn: true },
+      { id: 'zotseek-pref-apiKey', pref: 'zotseek.apiKey', warn: false },
+      { id: 'zotseek-pref-apiEndpoint', pref: 'zotseek.apiEndpoint', warn: true }
+    ];
+
+    for (const { id, pref, warn } of textInputs) {
+      const input = doc.getElementById(id) as HTMLInputElement;
+      if (input) {
+        input.addEventListener('change', () => {
+          const value = input.value.trim();
+          Z.Prefs.set(pref, value, true);
+          this.logger.debug(`${pref} changed`);
+          if (warn) this.showEmbeddingWarning();
         });
       }
     }
@@ -169,7 +212,7 @@ class PreferencesManager {
 
     try {
       const stats = await Z.ZotSeek.getStats();
-      
+
       // Update all statistics
       setText('zotseek-stat-papers', stats.indexedPapers.toLocaleString());
       setText('zotseek-stat-chunks', stats.totalChunks.toLocaleString());
@@ -310,6 +353,37 @@ class PreferencesManager {
     if (checkbox) {
       checkbox.checked = checked;
     }
+  }
+
+  /**
+   * Update visibility of provider-specific fields
+   */
+  private updateProviderFieldsVisibility(provider: string): void {
+    if (!this.window) return;
+    const doc = this.window.document;
+
+    const show = (id: string, isVisible: boolean) => {
+      const el = doc.getElementById(id);
+      if (el) el.style.display = isVisible ? 'flex' : 'none';
+    };
+
+    // Model field is shown for all except local (which is fixed)
+    show('zotseek-pref-box-embeddingModel', provider !== 'local');
+
+    // API endpoint is shown for generic
+    show('zotseek-pref-box-apiEndpoint', provider === 'generic');
+
+    // API key is shown for all except local
+    show('zotseek-pref-box-apiKey', provider !== 'local');
+  }
+
+  /**
+   * Show warning that embedding settings change requires re-indexing
+   */
+  private showEmbeddingWarning(): void {
+    if (!this.window) return;
+    const warning = this.window.document.getElementById('zotseek-embedding-warning');
+    if (warning) warning.style.display = 'block';
   }
 
   /**

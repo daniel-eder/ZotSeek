@@ -106,6 +106,44 @@
   </html:p>
 </groupbox>
 
+<!-- Embedding Model Settings -->
+<groupbox>
+  <label><html:h2>Embedding Provider</html:h2></label>
+  
+  <hbox align="center">
+    <label value="Provider:" style="min-width: 180px;" />
+    <menulist id="zotseek-pref-embeddingProvider" native="true" style="min-width: 200px;">
+      <menupopup>
+        <menuitem label="Local (Transformers.js)" value="local" />
+        <menuitem label="OpenAI" value="openai" />
+        <menuitem label="Google Gemini" value="google" />
+        <menuitem label="Custom / Generic OpenAI-compatible" value="generic" />
+      </menupopup>
+    </menulist>
+  </hbox>
+
+  <hbox align="center" id="zotseek-pref-box-embeddingModel">
+    <label value="Model ID:" style="min-width: 180px;" />
+    <html:input type="text" id="zotseek-pref-embeddingModel" style="flex: 1; min-width: 200px;" />
+  </hbox>
+
+  <hbox align="center" id="zotseek-pref-box-apiEndpoint" style="display: none;">
+    <label value="API Endpoint:" style="min-width: 180px;" />
+    <html:input type="text" id="zotseek-pref-apiEndpoint" style="flex: 1; min-width: 200px;" />
+  </hbox>
+
+  <hbox align="center" id="zotseek-pref-box-apiKey" style="display: none;">
+    <label value="API Key:" style="min-width: 180px;" />
+    <html:input type="password" id="zotseek-pref-apiKey" style="flex: 1; min-width: 200px;" />
+  </hbox>
+
+  <html:div id="zotseek-embedding-warning" style="display: none; background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 8px; margin-top: 8px;">
+    <html:span style="color: #856404; font-size: 11px;">
+      ⚠️ Changing provider or model ID requires a full <html:strong>Rebuild Index</html:strong> to work correctly.
+    </html:span>
+  </html:div>
+</groupbox>
+
 <!-- Search Settings -->
 <groupbox>
   <label><html:h2>Search</html:h2></label>
