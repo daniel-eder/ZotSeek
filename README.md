@@ -276,11 +276,12 @@ npm install
 # Build the plugin
 npm run build
 
-# Create extension proxy file (macOS)
-echo "$(pwd)/build" > ~/Library/Application\ Support/Zotero/Profiles/*.default/extensions/zotseek@zotero.org
+# Create extension proxy file (points Zotero to your build folder)
+# Note: Ensure Zotero is CLOSED before running this
+npm run setup-proxy
 
 # Restart Zotero with debug console
-open -a Zotero --args -purgecaches -ZoteroDebugText -jsconsole
+npm start
 ```
 
 ### Building for Distribution

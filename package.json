@@ -9,7 +9,8 @@
     "build:dev": "node scripts/build.js --dev",
     "watch": "node scripts/build.js --watch",
     "start": "npm run build && npm run start:zotero",
-    "start:zotero": "open -a Zotero --args -purgecaches -ZoteroDebugText -jsconsole"
+    "start:zotero": "start \"\" zotero -purgecaches -ZoteroDebugText -jsconsole",
+    "setup-proxy": "node -e \"const os = require('os'); const { execSync } = require('child_process'); if (os.platform() === 'win32') { execSync('powershell -ExecutionPolicy Bypass -File scripts/setup-proxy.ps1', { stdio: 'inherit' }); } else { execSync('chmod +x scripts/setup-proxy.sh && ./scripts/setup-proxy.sh', { stdio: 'inherit' }); }\""
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
