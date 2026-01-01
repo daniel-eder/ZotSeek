@@ -126,6 +126,21 @@ export class LLMClient {
                     ]
                 };
             }
+            if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+                const content: any[] = [];
+                if (m.content) {
+                    content.push({ type: 'text', text: m.content });
+                }
+                for (const tc of m.tool_calls) {
+                    content.push({
+                        type: 'tool_use',
+                        id: tc.id,
+                        name: tc.function.name,
+                        input: JSON.parse(tc.function.arguments)
+                    });
+                }
+                return { role: 'assistant', content };
+            }
             return m;
         });
 
