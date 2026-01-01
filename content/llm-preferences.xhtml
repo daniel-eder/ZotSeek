@@ -27,9 +27,13 @@
         </hbox>
 
         <vbox style="margin-top: 12px;">
-            <label value="System Prompt (Anti-hallucination):" style="font-weight: bold; margin-bottom: 4px;" />
-            <html:textarea id="zotseek-pref-llmSystemPrompt" rows="4"
-                style="flex: 1; min-width: 100%; font-family: inherit; font-size: 13px; padding: 5px;"
+            <hbox align="center">
+                <label value="System Prompt (Anti-hallucination):" style="font-weight: bold;" />
+                <spacer flex="1" />
+                <button id="zotseek-restore-default-prompt" label="Restore Default" />
+            </hbox>
+            <html:textarea id="zotseek-pref-llmSystemPrompt" rows="6"
+                style="flex: 1; min-width: 100%; font-family: inherit; font-size: 13px; padding: 5px; margin-top: 4px;"
                 placeholder="Instructions for the AI..." />
             <label value="This prompt is sent with every message to guide the AI's behavior."
                 style="color: #666; font-size: 11px; margin-top: 2px;" />

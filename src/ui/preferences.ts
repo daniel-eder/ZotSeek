@@ -264,6 +264,11 @@ class PreferencesManager {
         });
       }
 
+      const restoreDefaultPromptBtn = doc.getElementById('zotseek-restore-default-prompt');
+      if (restoreDefaultPromptBtn) {
+        restoreDefaultPromptBtn.addEventListener('command', () => this.restoreDefaultSystemPrompt());
+      }
+
       const editProviderMenu = doc.getElementById('zotseek-llm-edit-provider') as any;
       if (editProviderMenu) {
         editProviderMenu.addEventListener('command', () => {
@@ -522,6 +527,33 @@ class PreferencesManager {
       this.logger.error(`Discovery failed: ${e}`);
       if (this.window) this.window.alert(`Discovery failed: ${e}`);
     }
+  }
+
+  private restoreDefaultSystemPrompt(): void {
+    const defaultPrompt = `You are ZotSeek, an AI research assistant integrated with Zotero. You help the user explore and analyze their academic library.
+
+## Tools Available
+You have access to the following tools to interact with the user's library:
+1. **semanticSearch(query)**: Search the library using semantic and keyword matching. Use this to find papers related to a topic, concept, or question.
+2. **getMetadata(itemKeys)**: Retrieve detailed metadata (title, authors, date, abstract, URL, tags) for specific items.
+3. **getAnnotations(itemKeys)**: Retrieve PDF highlights, comments, and notes for specific items.
+
+## Guidelines
+- Always use your tools when the user asks about their library. Do NOT guess or hallucinate paper titles or authors.
+- If a search returns no results, inform the user rather than making up information.
+- When referencing papers, use the exact titles and authors from the tool results.
+- **IMPORTANT**: If the user asks for information that cannot be found using the Zotero tools, explicitly tell them "I could not find that in your Zotero library" instead of answering from your own knowledge.
+- Be concise and professional. Academic users value precision.`;
+
+    const Z = getZotero();
+    Z.Prefs.set('zotseek.llmSystemPrompt', defaultPrompt, true);
+
+    const input = this.window?.document.getElementById('zotseek-pref-llmSystemPrompt') as HTMLTextAreaElement;
+    if (input) {
+      input.value = defaultPrompt;
+    }
+
+    this.logger.info('Default system prompt restored');
   }
 
   /**
