@@ -2,6 +2,49 @@
 
 All notable changes to ZotSeek - Semantic Search for Zotero will be documented in this file.
 
+## [1.3.0] - Unreleased (Draft)
+
+### Added
+- **Search from PDF Selection** - Select text in PDF and right-click to find related documents
+  - Appears in context menu when text is selected: "Find Related Documents"
+  - Opens ZotSeek search dialog pre-filled with selected passage
+  - Automatically excludes the current document from search results
+  - Great for exploring concepts while reading
+- **GPU Acceleration (Experimental)** - Automatic WebGPU detection for faster indexing
+  - Up to 10-20x faster embeddings when WebGPU is available
+  - Automatic fallback to CPU (WASM) when WebGPU is not supported
+  - Check debug console for "Model loaded on GPU" or "Model loaded on CPU"
+  - Note: Waiting for Zotero/Firefox to enable WebGPU (Firefox 141+ on Windows, macOS/Linux coming)
+
+### Technical
+- Added `createViewContextMenu` event listener for PDF reader text selection
+- Search dialog now accepts `initialQuery` and `excludeItemId` parameters
+- Added WebGPU detection with automatic fallback to WASM in embedding worker
+
+---
+
+## [1.2.0] - 2026-01-05
+
+### Added
+- **Result Granularity Toggle** - Switch between two search result views in Full Document mode:
+  - **By Section** (default): Aggregated results showing 1 result per paper with best matching section
+  - **By Location**: All matching paragraphs with exact page & paragraph numbers and individual scores
+- **References Filtering** - Bibliography sections are now automatically excluded from indexing
+  - Detects section headers: "References", "Bibliography", "Works Cited", "Literature Cited"
+  - Recognizes citation entry patterns: `[1]`, `Smith, J. (2021).`, DOI links
+  - Stops indexing once references section is detected
+- **Passage-Level Location** - Results in "By Location" mode show exact page and paragraph numbers
+- **PDF Navigation** - Clicking a result in "By Location" mode opens PDF to the exact page
+
+### Technical
+- Added `returnAllChunks` option to search pipeline for parent-child retrieval pattern
+- Added `chunkIndex` field to search results for unique chunk identification
+- Implemented `computeAllChunkResultsFloat32()` for all-chunks mode in SearchEngine
+- Modified RRF fusion to use `itemId-chunkIndex` composite key when returning all chunks
+- Added `isReferencesHeader()` and `isReferenceEntry()` detection in chunker
+
+---
+
 ## [1.1.0] - 2025-12-27
 
 ### Changed

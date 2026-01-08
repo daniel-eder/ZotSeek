@@ -15,6 +15,9 @@ dist/
 *.swo
 .DS_Store
 
+# AI context files
+CLAUDE.md
+
 # Debug
 *.log
 npm-debug.log*
