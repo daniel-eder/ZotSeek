@@ -180,6 +180,10 @@ class ZotSeekPlugin {
     await toolbarButton.registerReaderToolbar();
     this.logger.info('Reader toolbar button registered');
 
+    // Register reader text selection context menu ("Find Related Papers")
+    await toolbarButton.registerReaderContextMenu();
+    this.logger.info('Reader context menu registered');
+
     this.logger.info('=== Plugin Started Successfully ===');
   }
 
@@ -946,6 +950,11 @@ class ZotSeekPlugin {
               modelId: embeddingResult.modelId,
               indexedAt: new Date().toISOString(),
               contentHash: extracted.contentHash,
+              // Passage-level location (Phase 2)
+              pageNumber: chunk.pageNumber,
+              paragraphIndex: chunk.paragraphIndex,
+              startChar: chunk.startChar,
+              endChar: chunk.endChar,
             });
           }
         }
