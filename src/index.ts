@@ -1692,6 +1692,19 @@ class ZotSeekPlugin {
     const Z = getZotero();
     if (!Z) return;
 
+    // Re-check at run time: a queued backfill may start after note indexing was
+    // switched off. Running it then would re-extract without notes, change the
+    // content hash and replace the items' existing note chunks, deleting them.
+    if (!isNoteIndexingEnabled()) {
+      this.logger.info('Notes backfill skipped: note indexing is disabled');
+      if (interactive) {
+        this.showAlert(getString('notesBackfill-disabled'));
+      } else {
+        showQuickNotification(getString('notesBackfill-disabled'), 'default');
+      }
+      return;
+    }
+
     await this.ensureStoreReady();
     if (!this.vectorStore) return;
 
