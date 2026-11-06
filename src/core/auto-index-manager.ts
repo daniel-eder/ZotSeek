@@ -17,8 +17,10 @@ import { itemTitle } from '../utils/item-metadata';
 
 declare const Zotero: any;
 
-// Callback type for when items are ready to be indexed
-type IndexCallback = (items: any[]) => Promise<void>;
+// Callback type for when items are ready to be indexed. Resolving to `false`
+// means the batch was not processed because other indexing was busy; the items
+// are then kept pending and retried later instead of being dropped.
+type IndexCallback = (items: any[]) => Promise<boolean | void>;
 
 /**
  * Whether child-note text is part of the index. Module-level (not a class
@@ -502,7 +504,17 @@ export class AutoIndexManager {
 
       if (validItems.length > 0) {
         // Trigger indexing via callback
-        await this.indexCallback(validItems);
+        const processed = await this.indexCallback(validItems);
+        if (processed === false) {
+          // Another indexing run is busy. Keep the items pending and retry after
+          // the usual delay, so new items and note edits are not silently lost.
+          if (this.running) {
+            for (const item of validItems) this.pendingItems.add(item.id as number);
+            this.logger.debug(`Indexing busy, re-queued ${validItems.length} item(s) for auto-indexing`);
+            this.scheduleBatch();
+          }
+          return;
+        }
         this.logger.info(`Auto-indexed ${validItems.length} item(s)`);
       }
     } catch (error: any) {

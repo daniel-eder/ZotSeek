@@ -854,9 +854,7 @@ class ZotSeekPlugin {
    */
   private initAutoIndexManager(): void {
     // Set callback to index items (silent mode for auto-indexing)
-    autoIndexManager.setIndexCallback(async (items: any[]) => {
-      await this.indexItemsSilent(items);
-    });
+    autoIndexManager.setIndexCallback((items: any[]) => this.indexItemsSilent(items));
 
     // Set vector store reference for checking indexed status
     if (this.vectorStore) {
@@ -2222,14 +2220,24 @@ class ZotSeekPlugin {
 
   /**
    * Index items silently (for auto-indexing)
-   * Shows a progress indicator while running
+   * Shows a progress indicator while running.
+   *
+   * Resolves to false when other indexing is busy and the batch was not
+   * processed, so the auto-index manager can keep the items pending and retry
+   * instead of dropping them.
    */
-  private async indexItemsSilent(items: any[]): Promise<void> {
+  private async indexItemsSilent(items: any[]): Promise<boolean> {
     if (this.isIndexingBusy()) {
-      this.logger.debug('Indexing already in progress, skipping auto-index');
-      return;
+      this.logger.debug('Indexing already in progress, deferring auto-index');
+      return false;
     }
+    // Called synchronously after the busy check: runIndexItemsSilent sets the
+    // indexing flag before its first await, so no other run can slip in between.
+    await this.runIndexItemsSilent(items);
+    return true;
+  }
 
+  private async runIndexItemsSilent(items: any[]): Promise<void> {
     if (items.length === 0) {
       return;
     }
